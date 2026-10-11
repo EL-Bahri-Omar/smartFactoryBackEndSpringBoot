@@ -120,6 +120,13 @@ public class UserService {
         user.setRole(request.getRole());
         user.setStatus(request.getStatus().toUpperCase().trim());
 
+        if (request.getCustomGrantedPermissions() != null) {
+            user.setCustomGrantedPermissions(request.getCustomGrantedPermissions());
+        }
+        if (request.getCustomRevokedPermissions() != null) {
+            user.setCustomRevokedPermissions(request.getCustomRevokedPermissions());
+        }
+
         if (StringUtils.hasText(request.getPassword())) {
             if (request.getPassword().length() < 6) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR: Password must be at least 6 characters if provided");
@@ -128,6 +135,76 @@ public class UserService {
         }
 
         return userRepository.save(user);
+    }
+
+    public com.smartfactory.dto.UserPermissionsDto getUserPermissions(String id) {
+        User user = getUserById(id);
+        java.util.Set<com.smartfactory.security.Permission> roleDefaults =
+                user.getRole() != null ? user.getRole().getDefaultPermissions() : java.util.Collections.emptySet();
+        return new com.smartfactory.dto.UserPermissionsDto(
+                user.getId(),
+                user.getEmail(),
+                user.getRole(),
+                roleDefaults,
+                user.getCustomGrantedPermissions(),
+                user.getCustomRevokedPermissions(),
+                user.getEffectivePermissions()
+        );
+    }
+
+    public com.smartfactory.dto.UserPermissionsDto updateUserPermissions(String id, com.smartfactory.dto.UpdatePermissionsRequest request) {
+        User user = getUserById(id);
+
+        if (request.getPermissions() != null) {
+            // Checklist globale
+            user.applyPermissionsChecklist(request.getPermissions());
+        } else {
+            // Modification différentielle
+            if (request.getGrantedPermissions() != null) {
+                user.setCustomGrantedPermissions(request.getGrantedPermissions());
+            }
+            if (request.getRevokedPermissions() != null) {
+                user.setCustomRevokedPermissions(request.getRevokedPermissions());
+            }
+        }
+
+        User saved = userRepository.save(user);
+        java.util.Set<com.smartfactory.security.Permission> roleDefaults =
+                saved.getRole() != null ? saved.getRole().getDefaultPermissions() : java.util.Collections.emptySet();
+        return new com.smartfactory.dto.UserPermissionsDto(
+                saved.getId(),
+                saved.getEmail(),
+                saved.getRole(),
+                roleDefaults,
+                saved.getCustomGrantedPermissions(),
+                saved.getCustomRevokedPermissions(),
+                saved.getEffectivePermissions()
+        );
+    }
+
+    public Map<String, Object> getPermissionsCatalog() {
+        Map<String, Object> catalog = new LinkedHashMap<>();
+
+        java.util.List<Map<String, Object>> permissionsList = new java.util.ArrayList<>();
+        for (com.smartfactory.security.Permission p : com.smartfactory.security.Permission.values()) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("code", p.getCode());
+            item.put("description", p.getDescription());
+            item.put("category", p.getCategory());
+            permissionsList.add(item);
+        }
+        catalog.put("permissions", permissionsList);
+
+        Map<String, Object> rolesMap = new LinkedHashMap<>();
+        for (Role r : Role.values()) {
+            Map<String, Object> roleInfo = new LinkedHashMap<>();
+            roleInfo.put("label", r.getLabel());
+            roleInfo.put("defaultPermissions", r.getDefaultPermissions());
+            rolesMap.put(r.name(), roleInfo);
+        }
+        catalog.put("roles", rolesMap);
+
+        return catalog;
     }
 
     public User updateOwnProfile(String userId, User request) {

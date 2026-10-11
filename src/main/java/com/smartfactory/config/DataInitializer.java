@@ -7,6 +7,7 @@ import com.smartfactory.entity.User;
 import com.smartfactory.repository.MachineRepository;
 import com.smartfactory.repository.UserRepository;
 import com.smartfactory.security.Role;
+import com.smartfactory.service.MachineThresholdService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
@@ -23,13 +24,16 @@ public class DataInitializer implements CommandLineRunner {
     private final UserRepository userRepository;
     private final MachineRepository machineRepository;
     private final PasswordEncoder passwordEncoder;
+    private final MachineThresholdService machineThresholdService;
 
     public DataInitializer(UserRepository userRepository,
                            MachineRepository machineRepository,
-                           PasswordEncoder passwordEncoder) {
+                           PasswordEncoder passwordEncoder,
+                           MachineThresholdService machineThresholdService) {
         this.userRepository = userRepository;
         this.machineRepository = machineRepository;
         this.passwordEncoder = passwordEncoder;
+        this.machineThresholdService = machineThresholdService;
     }
 
     @Override
@@ -56,9 +60,10 @@ public class DataInitializer implements CommandLineRunner {
             log.info("Admin user updated with default credentials: admin@smartfactory.com");
         }
 
-        if (!machineRepository.findByCode("CNC-024").isPresent()) {
+        Machine defaultMachine = machineRepository.findByCode("CNC-024").orElse(null);
+        if (defaultMachine == null) {
             log.info("Creating default machine CNC-024...");
-            Machine defaultMachine = new Machine(
+            defaultMachine = new Machine(
                     "Centre d'usinage CNC-024",
                     "CNC-024",
                     "CNC Milling",
@@ -70,8 +75,13 @@ public class DataInitializer implements CommandLineRunner {
                             new MachineCharacteristic("Vitesse rotation max", "24000 RPM", "Mecanique")
                     )
             );
-            machineRepository.save(defaultMachine);
+            defaultMachine = machineRepository.save(defaultMachine);
             log.info("Default machine created: CNC-024");
+        }
+
+        // Initialiser les seuils par défaut persistés en base pour CNC-024
+        if (defaultMachine != null) {
+            machineThresholdService.initializeDefaultThresholdsForMachine(defaultMachine);
         }
     }
 }

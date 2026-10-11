@@ -35,19 +35,22 @@ public class SensorReadingService {
     private final AlertRepository alertRepository;
     private final RealtimeMessageService realtimeMessageService;
     private final ObjectMapper objectMapper;
+    private final MachineThresholdService machineThresholdService;
 
     public SensorReadingService(SensorReadingRepository readingRepository,
                                 MachineRepository machineRepository,
                                 SensorService sensorService,
                                 AlertRepository alertRepository,
                                 RealtimeMessageService realtimeMessageService,
-                                ObjectMapper objectMapper) {
+                                ObjectMapper objectMapper,
+                                MachineThresholdService machineThresholdService) {
         this.readingRepository = readingRepository;
         this.machineRepository = machineRepository;
         this.sensorService = sensorService;
         this.alertRepository = alertRepository;
         this.realtimeMessageService = realtimeMessageService;
         this.objectMapper = objectMapper;
+        this.machineThresholdService = machineThresholdService;
     }
 
     /**
@@ -253,61 +256,16 @@ public class SensorReadingService {
     }
 
     /**
-     * Verifies physical thresholds and persists an Alert when limits are breached.
+     * Verifies physical thresholds dynamically evaluated from database/cache and persists an Alert when limits are breached.
      */
     private void checkThresholdsAndAlert(Machine machine, Sensor sensor, SensorType type, double value, Instant timestamp) {
-        String severity = null;
-        double threshold = 0.0;
-        String message = null;
+        MachineThreshold.EvaluationResult evaluation = machineThresholdService.evaluateReading(machine, type, value);
 
-        switch (type) {
-            case TEMPERATURE:
-                if (value >= 80.0) {
-                    severity = "CRITICAL";
-                    threshold = 80.0;
-                    message = String.format("Température critique détectée: %.1f°C (seuil: 80.0°C)", value);
-                } else if (value >= 60.0) {
-                    severity = "WARNING";
-                    threshold = 60.0;
-                    message = String.format("Avertissement température élevée: %.1f°C (seuil: 60.0°C)", value);
-                }
-                break;
-            case VIBRATION:
-                if (value >= 8.0) {
-                    severity = "CRITICAL";
-                    threshold = 8.0;
-                    message = String.format("Vibration critique détectée: %.2f mm/s (seuil: 8.0 mm/s)", value);
-                } else if (value >= 4.5) {
-                    severity = "WARNING";
-                    threshold = 4.5;
-                    message = String.format("Avertissement vibration anormale: %.2f mm/s (seuil: 4.5 mm/s)", value);
-                }
-                break;
-            case CURRENT:
-                if (value >= 13.0) {
-                    severity = "CRITICAL";
-                    threshold = 13.0;
-                    message = String.format("Courant critique détecté: %.2f A (seuil: 13.0 A)", value);
-                } else if (value >= 9.5) {
-                    severity = "WARNING";
-                    threshold = 9.5;
-                    message = String.format("Avertissement surintensité: %.2f A (seuil: 9.5 A)", value);
-                }
-                break;
-            case RPM:
-                if (value < 500.0 || value > 2000.0) {
-                    severity = "CRITICAL";
-                    threshold = value < 500.0 ? 500.0 : 2000.0;
-                    message = String.format("Vitesse de rotation critique: %.0f RPM", value);
-                } else if (value < 1000.0 || value > 1800.0) {
-                    severity = "WARNING";
-                    threshold = value < 1000.0 ? 1000.0 : 1800.0;
-                    message = String.format("Avertissement vitesse de rotation anormale: %.0f RPM", value);
-                }
-                break;
-        }
+        if (evaluation != null && evaluation.isAlertTriggered()) {
+            String severity = evaluation.getSeverity();
+            Double threshold = evaluation.getBreachedThreshold();
+            String message = evaluation.getMessage();
 
-        if (severity != null) {
             Alert alert = new Alert(machine.getId(), sensor.getId(), type, severity, value, threshold, message, timestamp);
             Alert savedAlert = alertRepository.save(alert);
             log.warn("Created alert [{}] on machine [{}]: {}", severity, machine.getCode(), message);

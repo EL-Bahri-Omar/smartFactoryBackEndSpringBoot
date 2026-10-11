@@ -25,26 +25,28 @@ public class ZoneController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAuthority('ZONE_READ')")
     public ResponseEntity<List<Zone>> getAllZones() {
         List<Zone> zones = zoneService.getAllZones();
         return ResponseEntity.ok(zones);
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('ZONE_READ')")
     public ResponseEntity<Zone> getZoneById(@PathVariable String id) {
         Zone response = zoneService.getZoneById(id);
         return ResponseEntity.ok(response);
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('ZONE_WRITE')")
     public ResponseEntity<Zone> createZone(@Valid @RequestBody Zone zone) {
         Zone response = zoneService.createZone(zone);
         return new ResponseEntity<>(response, HttpStatus.CREATED);
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('ZONE_WRITE')")
     public ResponseEntity<Zone> updateZone(
             @PathVariable String id,
             @Valid @RequestBody Zone zone
@@ -54,7 +56,7 @@ public class ZoneController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('ZONE_WRITE')")
     public ResponseEntity<Void> deleteZone(@PathVariable String id) {
         zoneService.deleteZone(id);
         return ResponseEntity.noContent().build();
@@ -62,6 +64,7 @@ public class ZoneController {
 
     // US09: Associate & view machines organized by zone
     @GetMapping("/{id}/machines")
+    @PreAuthorize("hasAuthority('ZONE_READ')")
     public ResponseEntity<List<Machine>> getMachinesByZone(@PathVariable String id) {
         List<Machine> machines = machineService.getMachinesByZone(id);
         return ResponseEntity.ok(machines);

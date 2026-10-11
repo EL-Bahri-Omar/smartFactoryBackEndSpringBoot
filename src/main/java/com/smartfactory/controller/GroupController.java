@@ -28,6 +28,7 @@ public class GroupController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAuthority('GROUP_READ')")
     public ResponseEntity<Map<String, Object>> getAllGroups(
             @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "0") int page,
@@ -46,20 +47,21 @@ public class GroupController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('GROUP_READ')")
     public ResponseEntity<Group> getGroupById(@PathVariable String id) {
         Group response = groupService.getGroupById(id);
         return ResponseEntity.ok(response);
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('GROUP_WRITE')")
     public ResponseEntity<Group> createGroup(@Valid @RequestBody Group group) {
         Group response = groupService.createGroup(group);
         return new ResponseEntity<>(response, HttpStatus.CREATED);
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('GROUP_WRITE')")
     public ResponseEntity<Group> updateGroup(
             @PathVariable String id,
             @Valid @RequestBody Group group) {
@@ -68,14 +70,14 @@ public class GroupController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('GROUP_WRITE')")
     public ResponseEntity<Void> deleteGroup(@PathVariable String id) {
         groupService.deleteGroup(id);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{groupId}/operators/{userId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('GROUP_WRITE')")
     public ResponseEntity<Group> addOperator(
             @PathVariable String groupId,
             @PathVariable String userId) {
@@ -84,7 +86,7 @@ public class GroupController {
     }
 
     @DeleteMapping("/{groupId}/operators/{userId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('GROUP_WRITE')")
     public ResponseEntity<Group> removeOperator(
             @PathVariable String groupId,
             @PathVariable String userId) {
@@ -93,7 +95,7 @@ public class GroupController {
     }
 
     @PutMapping("/{groupId}/supervisor")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('GROUP_WRITE')")
     public ResponseEntity<Group> assignSupervisor(
             @PathVariable String groupId,
             @RequestBody Map<String, String> request) {
@@ -106,12 +108,14 @@ public class GroupController {
     }
 
     @GetMapping("/{groupId}/operators")
+    @PreAuthorize("hasAuthority('GROUP_READ')")
     public ResponseEntity<List<User>> getOperatorsByGroupId(@PathVariable String groupId) {
         List<User> operators = groupService.getOperatorsByGroupId(groupId);
         return ResponseEntity.ok(operators);
     }
 
     @GetMapping("/{groupId}/supervisor")
+    @PreAuthorize("hasAuthority('GROUP_READ')")
     public ResponseEntity<User> getSupervisorByGroupId(@PathVariable String groupId) {
         User supervisor = groupService.getSupervisorByGroupId(groupId);
         if (supervisor == null) {

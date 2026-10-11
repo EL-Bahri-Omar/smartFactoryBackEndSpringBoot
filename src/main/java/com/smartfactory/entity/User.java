@@ -1,6 +1,7 @@
 package com.smartfactory.entity;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.smartfactory.security.Permission;
 import com.smartfactory.security.Role;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -11,8 +12,15 @@ import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 @Document(collection = "users")
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class User {
 
     @Id
@@ -32,9 +40,19 @@ public class User {
     @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String password;
 
-    private Role role;
+    private Role role = Role.OPERATOR;
     private String status = "ACTIVE"; // ACTIVE, INACTIVE
     private boolean emailVerified = true;
+
+    /**
+     * Privilèges explicitement accordés à cet utilisateur (en plus de son rôle).
+     */
+    private Set<Permission> customGrantedPermissions = new HashSet<>();
+
+    /**
+     * Privilèges explicitement révoqués pour cet utilisateur (même si présents dans son rôle).
+     */
+    private Set<Permission> customRevokedPermissions = new HashSet<>();
 
     @CreatedDate
     private Instant createdAt;
@@ -50,8 +68,80 @@ public class User {
         this.lastName = lastName;
         this.email = email;
         this.password = password;
-        this.role = role;
+        this.role = role != null ? role : Role.OPERATOR;
         this.status = status != null ? status : "ACTIVE";
+    }
+
+    /**
+     * Calcule l'ensemble des permissions effectives de l'utilisateur :
+     * 1. Permissions par défaut héritées du rôle
+     * 2. + Permissions explicitement accordées (customGrantedPermissions)
+     * 3. - Permissions explicitement refusées (customRevokedPermissions)
+     */
+    @JsonProperty(value = "effectivePermissions", access = JsonProperty.Access.READ_ONLY)
+    public Set<Permission> getEffectivePermissions() {
+        Set<Permission> effective = new HashSet<>();
+        if (role != null && role.getDefaultPermissions() != null) {
+            effective.addAll(role.getDefaultPermissions());
+        }
+        if (customGrantedPermissions != null) {
+            effective.addAll(customGrantedPermissions);
+        }
+        if (customRevokedPermissions != null) {
+            effective.removeAll(customRevokedPermissions);
+        }
+        return Collections.unmodifiableSet(effective);
+    }
+
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public void setEffectivePermissions(Set<Permission> effectivePermissions) {
+        // no-op for deserialization safety
+    }
+
+    /**
+     * Vérifie si l'utilisateur possède une permission spécifique effective.
+     */
+    public boolean hasEffectivePermission(Permission permission) {
+        if (permission == null) {
+            return false;
+        }
+        // Refus explicite prioritaire
+        if (customRevokedPermissions != null && customRevokedPermissions.contains(permission)) {
+            return false;
+        }
+        // Accord explicite prioritaire
+        if (customGrantedPermissions != null && customGrantedPermissions.contains(permission)) {
+            return true;
+        }
+        // Héritage par défaut du rôle
+        return role != null && role.hasDefaultPermission(permission);
+    }
+
+    /**
+     * Synchronise la checklist des privilèges pour cet utilisateur.
+     * Détermine automatiquement les autorisations et révocations personnalisées
+     * par rapport au rôle par défaut.
+     */
+    public void applyPermissionsChecklist(Collection<Permission> checkedPermissions) {
+        Set<Permission> target = checkedPermissions != null ? new HashSet<>(checkedPermissions) : Collections.emptySet();
+        Set<Permission> roleDefaults = role != null ? role.getDefaultPermissions() : Collections.emptySet();
+
+        Set<Permission> newGranted = new HashSet<>();
+        Set<Permission> newRevoked = new HashSet<>();
+
+        for (Permission p : Permission.values()) {
+            boolean isChecked = target.contains(p);
+            boolean isRoleDefault = roleDefaults.contains(p);
+
+            if (isChecked && !isRoleDefault) {
+                newGranted.add(p);
+            } else if (!isChecked && isRoleDefault) {
+                newRevoked.add(p);
+            }
+        }
+
+        this.customGrantedPermissions = newGranted;
+        this.customRevokedPermissions = newRevoked;
     }
 
     public String getId() {
@@ -116,6 +206,22 @@ public class User {
 
     public void setEmailVerified(boolean emailVerified) {
         this.emailVerified = emailVerified;
+    }
+
+    public Set<Permission> getCustomGrantedPermissions() {
+        return customGrantedPermissions;
+    }
+
+    public void setCustomGrantedPermissions(Set<Permission> customGrantedPermissions) {
+        this.customGrantedPermissions = customGrantedPermissions != null ? customGrantedPermissions : new HashSet<>();
+    }
+
+    public Set<Permission> getCustomRevokedPermissions() {
+        return customRevokedPermissions;
+    }
+
+    public void setCustomRevokedPermissions(Set<Permission> customRevokedPermissions) {
+        this.customRevokedPermissions = customRevokedPermissions != null ? customRevokedPermissions : new HashSet<>();
     }
 
     public Instant getCreatedAt() {

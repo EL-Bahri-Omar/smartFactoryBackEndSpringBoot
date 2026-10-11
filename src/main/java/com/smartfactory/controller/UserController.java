@@ -1,5 +1,7 @@
 package com.smartfactory.controller;
 
+import com.smartfactory.dto.UpdatePermissionsRequest;
+import com.smartfactory.dto.UserPermissionsDto;
 import com.smartfactory.entity.User;
 import com.smartfactory.security.Role;
 import com.smartfactory.security.UserPrincipal;
@@ -26,8 +28,18 @@ public class UserController {
         this.userService = userService;
     }
 
+    /**
+     * Catalogue global des permissions disponibles et des correspondances par rôle.
+     */
+    @GetMapping("/permissions/catalog")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Map<String, Object>> getPermissionsCatalog() {
+        Map<String, Object> catalog = userService.getPermissionsCatalog();
+        return ResponseEntity.ok(catalog);
+    }
+
     @GetMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('USER_READ')")
     public ResponseEntity<Map<String, Object>> getUsers(
             @RequestParam(required = false) String search,
             @RequestParam(required = false) Role role,
@@ -47,21 +59,21 @@ public class UserController {
     }
 
     @GetMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('USER_READ')")
     public ResponseEntity<User> getUserById(@PathVariable String id) {
         User response = userService.getUserById(id);
         return ResponseEntity.ok(response);
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('USER_WRITE')")
     public ResponseEntity<User> createUser(@Valid @RequestBody User user) {
         User response = userService.createUser(user);
         return new ResponseEntity<>(response, HttpStatus.CREATED);
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('USER_WRITE')")
     public ResponseEntity<User> updateUser(
             @PathVariable String id,
             @Valid @RequestBody User user) {
@@ -70,20 +82,42 @@ public class UserController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('USER_WRITE')")
     public ResponseEntity<Void> deleteUser(@PathVariable String id) {
         userService.deleteUser(id);
         return ResponseEntity.noContent().build();
     }
 
     @PutMapping("/change-password/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('USER_WRITE')")
     public ResponseEntity<Void> changePassword(
             @PathVariable String id,
             @RequestParam String newPassword,
             @RequestParam String oldPassword) {
         userService.updatePassword(id, newPassword, oldPassword);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Consulte les privilèges détaillés d'un utilisateur (rôle, accordés, révoqués, effectifs).
+     */
+    @GetMapping("/{id}/permissions")
+    @PreAuthorize("hasAuthority('USER_READ')")
+    public ResponseEntity<UserPermissionsDto> getUserPermissions(@PathVariable String id) {
+        UserPermissionsDto dto = userService.getUserPermissions(id);
+        return ResponseEntity.ok(dto);
+    }
+
+    /**
+     * Met à jour la checklist des permissions personnalisées d'un utilisateur.
+     */
+    @PutMapping("/{id}/permissions")
+    @PreAuthorize("hasAuthority('USER_PERMISSIONS_MANAGE')")
+    public ResponseEntity<UserPermissionsDto> updateUserPermissions(
+            @PathVariable String id,
+            @RequestBody UpdatePermissionsRequest request) {
+        UserPermissionsDto updated = userService.updateUserPermissions(id, request);
+        return ResponseEntity.ok(updated);
     }
 
     // Self-service: any authenticated user, identity from JWT (no :id to tamper with)

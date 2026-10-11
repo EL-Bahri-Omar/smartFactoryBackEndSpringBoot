@@ -31,6 +31,7 @@ public class SensorReadingController {
      * GET /api/machines/{id}/readings?from=...&to=...&sensorType=...&page=0&size=20&sort=timestamp,desc
      */
     @GetMapping("/{id}/readings")
+    @org.springframework.security.access.prepost.PreAuthorize("hasAuthority('READINGS_READ')")
     public ResponseEntity<Map<String, Object>> getMachineReadings(
             @PathVariable String id,
             @RequestParam(required = false) String from,

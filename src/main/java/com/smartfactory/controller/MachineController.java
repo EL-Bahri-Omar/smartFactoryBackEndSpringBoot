@@ -15,7 +15,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -32,6 +31,7 @@ public class MachineController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAuthority('MACHINE_READ')")
     public ResponseEntity<Map<String, Object>> getMachines(
             @RequestParam(required = false) String zoneId,
             @RequestParam(required = false) MachineStatus status,
@@ -53,20 +53,21 @@ public class MachineController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAuthority('MACHINE_READ')")
     public ResponseEntity<Machine> getMachineById(@PathVariable String id) {
         Machine response = machineService.getMachineById(id);
         return ResponseEntity.ok(response);
     }
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('MACHINE_WRITE')")
     public ResponseEntity<Machine> createMachine(@Valid @RequestBody Machine machine) {
         Machine response = machineService.createMachine(machine);
         return new ResponseEntity<>(response, HttpStatus.CREATED);
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('MACHINE_WRITE')")
     public ResponseEntity<Machine> updateMachine(
             @PathVariable String id,
             @Valid @RequestBody Machine machine
@@ -79,7 +80,7 @@ public class MachineController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAuthority('MACHINE_WRITE')")
     public ResponseEntity<Void> deleteMachine(@PathVariable String id) {
         machineService.deleteMachine(id);
         return ResponseEntity.noContent().build();
@@ -87,6 +88,7 @@ public class MachineController {
 
     // US08: Machine details & associated sensors
     @GetMapping("/{id}/sensors")
+    @PreAuthorize("hasAuthority('MACHINE_READ')")
     public ResponseEntity<List<Sensor>> getMachineSensors(@PathVariable String id) {
         Machine machine = machineService.getMachineById(id);
         List<Sensor> sensors = sensorService.getSensorsByMachine(machine.getId());

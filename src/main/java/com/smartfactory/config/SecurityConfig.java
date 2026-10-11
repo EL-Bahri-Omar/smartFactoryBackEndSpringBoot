@@ -66,29 +66,33 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/reset-password").permitAll()
                         .requestMatchers("/ws/**").permitAll()
 
-                        // Self-service profile - any authenticated user (must precede /api/users/**)
+                        // Self-service profile & catalog - any authenticated user
                         .requestMatchers(HttpMethod.PUT, "/api/users/me/**").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/users/permissions/catalog").authenticated()
 
-                        // User management - ADMIN only
-                        .requestMatchers("/api/users/**").hasRole("ADMIN")
+                        // User management - fine-grained authority check + @PreAuthorize
+                        .requestMatchers(HttpMethod.GET, "/api/users/**").hasAnyAuthority("ROLE_ADMIN", "USER_READ")
+                        .requestMatchers(HttpMethod.POST, "/api/users/**").hasAnyAuthority("ROLE_ADMIN", "USER_WRITE")
+                        .requestMatchers(HttpMethod.PUT, "/api/users/**").hasAnyAuthority("ROLE_ADMIN", "USER_WRITE", "USER_PERMISSIONS_MANAGE")
+                        .requestMatchers(HttpMethod.DELETE, "/api/users/**").hasAnyAuthority("ROLE_ADMIN", "USER_WRITE")
 
-                        // Machines: write is ADMIN, read is authenticated
-                        .requestMatchers(HttpMethod.POST, "/api/machines/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.PUT, "/api/machines/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.DELETE, "/api/machines/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.GET, "/api/machines/**").authenticated()
+                        // Machines & thresholds: fine-grained authorities
+                        .requestMatchers(HttpMethod.POST, "/api/machines/**").hasAnyAuthority("ROLE_ADMIN", "MACHINE_WRITE", "THRESHOLD_WRITE")
+                        .requestMatchers(HttpMethod.PUT, "/api/machines/**").hasAnyAuthority("ROLE_ADMIN", "MACHINE_WRITE", "THRESHOLD_WRITE")
+                        .requestMatchers(HttpMethod.DELETE, "/api/machines/**").hasAnyAuthority("ROLE_ADMIN", "MACHINE_WRITE", "THRESHOLD_WRITE")
+                        .requestMatchers(HttpMethod.GET, "/api/machines/**").hasAnyAuthority("ROLE_ADMIN", "MACHINE_READ", "THRESHOLD_READ", "READINGS_READ")
 
-                        // Zones: write is ADMIN, read is authenticated
-                        .requestMatchers(HttpMethod.POST, "/api/zones/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.PUT, "/api/zones/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.DELETE, "/api/zones/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.GET, "/api/zones/**").authenticated()
+                        // Zones: write requires ZONE_WRITE, read requires ZONE_READ
+                        .requestMatchers(HttpMethod.POST, "/api/zones/**").hasAnyAuthority("ROLE_ADMIN", "ZONE_WRITE")
+                        .requestMatchers(HttpMethod.PUT, "/api/zones/**").hasAnyAuthority("ROLE_ADMIN", "ZONE_WRITE")
+                        .requestMatchers(HttpMethod.DELETE, "/api/zones/**").hasAnyAuthority("ROLE_ADMIN", "ZONE_WRITE")
+                        .requestMatchers(HttpMethod.GET, "/api/zones/**").hasAnyAuthority("ROLE_ADMIN", "ZONE_READ")
 
-                        // Groups: write is ADMIN, read is authenticated
-                        .requestMatchers(HttpMethod.POST, "/api/groups/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.PUT, "/api/groups/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.DELETE, "/api/groups/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.GET, "/api/groups/**").authenticated()
+                        // Groups: write requires GROUP_WRITE, read requires GROUP_READ
+                        .requestMatchers(HttpMethod.POST, "/api/groups/**").hasAnyAuthority("ROLE_ADMIN", "GROUP_WRITE")
+                        .requestMatchers(HttpMethod.PUT, "/api/groups/**").hasAnyAuthority("ROLE_ADMIN", "GROUP_WRITE")
+                        .requestMatchers(HttpMethod.DELETE, "/api/groups/**").hasAnyAuthority("ROLE_ADMIN", "GROUP_WRITE")
+                        .requestMatchers(HttpMethod.GET, "/api/groups/**").hasAnyAuthority("ROLE_ADMIN", "GROUP_READ")
 
                         // Any other request requires authentication
                         .anyRequest().authenticated()
