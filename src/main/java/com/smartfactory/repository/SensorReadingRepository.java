@@ -22,6 +22,14 @@ public interface SensorReadingRepository extends MongoRepository<SensorReading, 
 
     Page<SensorReading> findByMachineIdAndSensorTypeAndTimestampBetween(String machineId, SensorType sensorType, Instant from, Instant to, Pageable pageable);
 
+    Page<SensorReading> findByMachineCode(String machineCode, Pageable pageable);
+
+    Page<SensorReading> findByMachineCodeAndTimestampBetween(String machineCode, Instant from, Instant to, Pageable pageable);
+
+    Page<SensorReading> findByMachineCodeAndSensorType(String machineCode, SensorType sensorType, Pageable pageable);
+
+    Page<SensorReading> findByMachineCodeAndSensorTypeAndTimestampBetween(String machineCode, SensorType sensorType, Instant from, Instant to, Pageable pageable);
+
     List<SensorReading> findByMachineId(String machineId, Sort sort);
 
     List<SensorReading> findByMachineIdAndTimestampBetween(String machineId, Instant from, Instant to, Sort sort);
@@ -30,7 +38,13 @@ public interface SensorReadingRepository extends MongoRepository<SensorReading, 
 
     List<SensorReading> findByMachineIdAndSensorTypeAndTimestampBetween(String machineId, SensorType sensorType, Instant from, Instant to, Sort sort);
 
+    List<SensorReading> findByMachineCodeAndTimestampBetween(String machineCode, Instant from, Instant to, Sort sort);
+
+    List<SensorReading> findByMachineCodeAndSensorTypeAndTimestampBetween(String machineCode, SensorType sensorType, Instant from, Instant to, Sort sort);
+
     boolean existsByMachineIdAndSensorIdAndTimestamp(String machineId, String sensorId, Instant timestamp);
+
+    boolean existsByMachineIdAndSensorTypeAndTimestamp(String machineId, SensorType sensorType, Instant timestamp);
 
     void deleteByMachineId(String machineId);
 }

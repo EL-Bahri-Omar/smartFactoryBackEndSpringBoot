@@ -72,15 +72,21 @@ public class SecurityConfig {
 
                         // User management - fine-grained authority check + @PreAuthorize
                         .requestMatchers(HttpMethod.GET, "/api/users/**").hasAnyAuthority("ROLE_ADMIN", "USER_READ")
-                        .requestMatchers(HttpMethod.POST, "/api/users/**").hasAnyAuthority("ROLE_ADMIN", "USER_WRITE")
-                        .requestMatchers(HttpMethod.PUT, "/api/users/**").hasAnyAuthority("ROLE_ADMIN", "USER_WRITE", "USER_PERMISSIONS_MANAGE")
-                        .requestMatchers(HttpMethod.DELETE, "/api/users/**").hasAnyAuthority("ROLE_ADMIN", "USER_WRITE")
+                        .requestMatchers(HttpMethod.POST, "/api/users/**").hasAnyAuthority("ROLE_ADMIN", "USER_WRITE", "USER_CREATE")
+                        .requestMatchers(HttpMethod.PUT, "/api/users/**").hasAnyAuthority("ROLE_ADMIN", "USER_WRITE", "USER_UPDATE", "USER_PERMISSIONS_MANAGE")
+                        .requestMatchers(HttpMethod.DELETE, "/api/users/**").hasAnyAuthority("ROLE_ADMIN", "USER_WRITE", "USER_DELETE")
 
-                        // Machines & thresholds: fine-grained authorities
-                        .requestMatchers(HttpMethod.POST, "/api/machines/**").hasAnyAuthority("ROLE_ADMIN", "MACHINE_WRITE", "THRESHOLD_WRITE")
-                        .requestMatchers(HttpMethod.PUT, "/api/machines/**").hasAnyAuthority("ROLE_ADMIN", "MACHINE_WRITE", "THRESHOLD_WRITE")
-                        .requestMatchers(HttpMethod.DELETE, "/api/machines/**").hasAnyAuthority("ROLE_ADMIN", "MACHINE_WRITE", "THRESHOLD_WRITE")
-                        .requestMatchers(HttpMethod.GET, "/api/machines/**").hasAnyAuthority("ROLE_ADMIN", "MACHINE_READ", "THRESHOLD_READ", "READINGS_READ")
+                        // Role management - dynamic RBAC (Part C)
+                        .requestMatchers(HttpMethod.GET, "/api/roles/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_READ")
+                        .requestMatchers(HttpMethod.POST, "/api/roles/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_CREATE", "ROLE_UPDATE")
+                        .requestMatchers(HttpMethod.PUT, "/api/roles/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_UPDATE")
+                        .requestMatchers(HttpMethod.DELETE, "/api/roles/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_DELETE")
+
+                        // Machines & thresholds & readings: fine-grained authorities
+                        .requestMatchers(HttpMethod.POST, "/api/machines/**").hasAnyAuthority("ROLE_ADMIN", "MACHINE_WRITE", "MACHINE_CREATE", "THRESHOLD_WRITE")
+                        .requestMatchers(HttpMethod.PUT, "/api/machines/**").hasAnyAuthority("ROLE_ADMIN", "MACHINE_WRITE", "MACHINE_UPDATE", "THRESHOLD_WRITE")
+                        .requestMatchers(HttpMethod.DELETE, "/api/machines/**").hasAnyAuthority("ROLE_ADMIN", "MACHINE_WRITE", "MACHINE_DELETE", "THRESHOLD_WRITE")
+                        .requestMatchers(HttpMethod.GET, "/api/machines/**").hasAnyAuthority("ROLE_ADMIN", "MACHINE_READ", "THRESHOLD_READ", "READINGS_READ", "SENSOR_READ", "SENSOR_HISTORY_READ")
 
                         // Zones: write requires ZONE_WRITE, read requires ZONE_READ
                         .requestMatchers(HttpMethod.POST, "/api/zones/**").hasAnyAuthority("ROLE_ADMIN", "ZONE_WRITE")

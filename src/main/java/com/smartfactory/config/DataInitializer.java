@@ -25,19 +25,25 @@ public class DataInitializer implements CommandLineRunner {
     private final MachineRepository machineRepository;
     private final PasswordEncoder passwordEncoder;
     private final MachineThresholdService machineThresholdService;
+    private final com.smartfactory.service.RoleService roleService;
 
     public DataInitializer(UserRepository userRepository,
                            MachineRepository machineRepository,
                            PasswordEncoder passwordEncoder,
-                           MachineThresholdService machineThresholdService) {
+                           MachineThresholdService machineThresholdService,
+                           com.smartfactory.service.RoleService roleService) {
         this.userRepository = userRepository;
         this.machineRepository = machineRepository;
         this.passwordEncoder = passwordEncoder;
         this.machineThresholdService = machineThresholdService;
+        this.roleService = roleService;
     }
 
     @Override
     public void run(String... args) {
+        // Initialiser les rôles dynamiques système (ADMIN, OPERATOR, TECHNICIAN, RESPONSABLE_INDUSTRIEL)
+        roleService.initializeDefaultRoles();
+
         User admin = userRepository.findByEmail("admin@smartfactory.com").orElse(null);
         if (admin == null) {
             log.info("No admin user found. Creating default admin user...");

@@ -9,7 +9,9 @@ import com.smartfactory.repository.SensorReadingRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -20,10 +22,17 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoUnit;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 
+/**
+ * Service de traitement des mesures capteurs, télémétrie temps réel et historique.
+ * Implémente :
+ * - Partie B : buffer de persistance et sauvegarde MongoDB toutes les 20s.
+ * - US20 à US23 : lecture temps réel (température, vibration, courant, RPM) avec seuils.
+ * - US24 : états machine et détection d'inactivité.
+ * - US25 : diffusion STOMP temps réel immédiate (sans attendre les 20s).
+ * - US26 à US28 : historique, séries temporelles et filtrage par période.
+ */
 @Service
 public class SensorReadingService {
 
@@ -36,6 +45,8 @@ public class SensorReadingService {
     private final RealtimeMessageService realtimeMessageService;
     private final ObjectMapper objectMapper;
     private final MachineThresholdService machineThresholdService;
+    private final HistoryBufferService historyBufferService;
+    private final TelemetryCacheService telemetryCacheService;
 
     public SensorReadingService(SensorReadingRepository readingRepository,
                                 MachineRepository machineRepository,
@@ -43,7 +54,9 @@ public class SensorReadingService {
                                 AlertRepository alertRepository,
                                 RealtimeMessageService realtimeMessageService,
                                 ObjectMapper objectMapper,
-                                MachineThresholdService machineThresholdService) {
+                                MachineThresholdService machineThresholdService,
+                                HistoryBufferService historyBufferService,
+                                TelemetryCacheService telemetryCacheService) {
         this.readingRepository = readingRepository;
         this.machineRepository = machineRepository;
         this.sensorService = sensorService;
@@ -51,11 +64,13 @@ public class SensorReadingService {
         this.realtimeMessageService = realtimeMessageService;
         this.objectMapper = objectMapper;
         this.machineThresholdService = machineThresholdService;
+        this.historyBufferService = historyBufferService;
+        this.telemetryCacheService = telemetryCacheService;
     }
 
     /**
-     * Receives and validates an MQTT message, persists it, checks thresholds, and broadcasts via STOMP.
-     * US16, US17, US18, US25.
+     * Reçoit, valide, diffuse en temps réel (WebSocket) et met en mémoire tampon pour
+     * la persistance différée (20 secondes) vers SmartFactoryHistory.
      */
     public SensorReading validateAndProcess(String topic, String rawPayload) {
         log.debug("Processing MQTT message on topic [{}]: {}", topic, rawPayload);
@@ -74,7 +89,7 @@ public class SensorReadingService {
             throw new IllegalArgumentException("Invalid JSON payload: " + e.getMessage(), e);
         }
 
-        // 2. Extract and validate topic components (e.g. factory/machines/{machineId}/{sensorType})
+        // 2. Extraire les composants du topic (factory/machines/{machineId}/{sensorType})
         String topicMachineCode = null;
         String topicSensorStr = null;
         if (StringUtils.hasText(topic)) {
@@ -85,7 +100,7 @@ public class SensorReadingService {
             }
         }
 
-        // 3. Machine identification (US17 6.1)
+        // 3. Identification de la machine
         String payloadMachineCode = root.path("machineCode").asText(null);
         String payloadMachineId = root.path("machineId").asText(null);
         String effectivePayloadIdentifier = StringUtils.hasText(payloadMachineCode) ? payloadMachineCode : payloadMachineId;
@@ -113,7 +128,7 @@ public class SensorReadingService {
             throw new IllegalArgumentException("Unknown machine: " + machineLookupKey);
         }
 
-        // 4. Sensor type validation (US17 6.3)
+        // 4. Validation du type de capteur
         String payloadSensorTypeStr = root.path("sensorType").asText(null);
         SensorType payloadSensorType = SensorType.fromString(payloadSensorTypeStr);
         SensorType topicSensorType = SensorType.fromString(topicSensorStr);
@@ -130,7 +145,7 @@ public class SensorReadingService {
             throw new IllegalArgumentException("Topic sensor type mismatch with payload");
         }
 
-        // 5. Value validation (US17 6.4)
+        // 5. Validation de la valeur mesurée
         JsonNode valueNode = root.get("value");
         if (valueNode == null || !valueNode.isNumber()) {
             log.warn("MQTT - Message invalide\nTopic: {}\nReason: Valeur numérique manquante ou invalide", topic);
@@ -142,7 +157,7 @@ public class SensorReadingService {
             throw new IllegalArgumentException("Value cannot be NaN or Infinite");
         }
 
-        // 6. Unit validation (US17 6.5)
+        // 6. Validation de l'unité
         String unit = root.path("unit").asText(null);
         if (!StringUtils.hasText(unit)) {
             unit = effectiveSensorType.getDefaultUnit();
@@ -151,7 +166,7 @@ public class SensorReadingService {
             throw new IllegalArgumentException("Invalid unit [" + unit + "] for sensor type " + effectiveSensorType);
         }
 
-        // 7. Timestamp validation (US17 6.6)
+        // 7. Validation de l'horodatage
         String timestampStr = root.path("timestamp").asText(null);
         Instant timestamp = parseTimestamp(timestampStr);
         if (timestamp == null) {
@@ -159,7 +174,6 @@ public class SensorReadingService {
             throw new IllegalArgumentException("Invalid timestamp: " + timestampStr);
         }
 
-        // Timestamp policy: reject future timestamps beyond 24h or ancient timestamps older than 30 days
         Instant now = Instant.now();
         if (timestamp.isAfter(now.plus(24, ChronoUnit.HOURS))) {
             log.warn("MQTT - Message invalide\nTopic: {}\nReason: Timestamp dans le futur [{}]", topic, timestamp);
@@ -170,22 +184,23 @@ public class SensorReadingService {
             throw new IllegalArgumentException("Timestamp is too old (> 30 days)");
         }
 
-        // 8. Sensor identification & Auto-provisioning (US17 6.2)
+        // 8. Auto-provisioning & validation du capteur
         Sensor sensor = sensorService.getOrCreateSensor(machine, effectiveSensorType, unit);
         if (!machine.getId().equals(sensor.getMachineId())) {
             log.warn("MQTT - Message invalide\nTopic: {}\nReason: Sensor [{}] does not belong to machine [{}]", topic, sensor.getId(), machine.getId());
             throw new IllegalArgumentException("Sensor does not belong to machine");
         }
 
-        // 9. Deduplication check (US18 7.2)
+        // 9. Vérification anti-doublon
         if (readingRepository.existsByMachineIdAndSensorIdAndTimestamp(machine.getId(), sensor.getId(), timestamp)) {
             log.debug("Duplicate measurement ignored for machine [{}] sensor [{}] timestamp [{}]", machine.getCode(), sensor.getId(), timestamp);
             return null;
         }
 
-        // 10. Persist reading (US18 7.1)
+        // 10. Construction du document de mesure
         SensorReading reading = new SensorReading(
                 machine.getId(),
+                machine.getCode(),
                 sensor.getId(),
                 effectiveSensorType,
                 value,
@@ -193,15 +208,35 @@ public class SensorReadingService {
                 timestamp,
                 now
         );
-        SensorReading savedReading = readingRepository.save(reading);
-        log.info("Persisted sensor reading: machine={}, sensor={}, type={}, value={} {}, ts={}",
-                machine.getCode(), sensor.getId(), effectiveSensorType, value, unit, timestamp);
 
-        // Required SLF4J structured log format
+        // Évaluation des seuils configurés en base
+        MachineThreshold.EvaluationResult evaluation = machineThresholdService.evaluateReading(machine, effectiveSensorType, value);
+        if (evaluation != null) {
+            reading.getMetadata().put("thresholdStatus", evaluation.getStatus());
+            reading.getMetadata().put("thresholdSeverity", evaluation.getSeverity());
+            if (evaluation.getBreachedThreshold() != null) {
+                reading.getMetadata().put("breachedThreshold", evaluation.getBreachedThreshold());
+            }
+        }
+
+        // 11. Actualisation immédiate du cache temps réel (US20 à US23)
+        telemetryCacheService.updateLatestReading(reading, machine.getCode());
+
+        // Récupération automatique si machine OFFLINE -> RUNNING (US24)
+        if (machine.getStatus() == MachineStatus.OFFLINE) {
+            machine.setStatus(MachineStatus.RUNNING);
+            machineRepository.save(machine);
+            telemetryCacheService.setMachineStatus(machine.getId(), MachineStatus.RUNNING);
+            telemetryCacheService.setMachineStatus(machine.getCode(), MachineStatus.RUNNING);
+            log.info("Machine [{}] a reçu une nouvelle mesure -> transition automatique OFFLINE -> RUNNING", machine.getCode());
+            realtimeMessageService.broadcastMachineStatus(machine);
+        }
+
+        // Journalisation structurée conforme
         log.info("MQTT - Message reçu\nTopic: {}\nMachine: {}\nSensor: {}\nValue: {}\nUnit: {}\nTimestamp: {}\nStatus: RECEIVED",
                 topic, machine.getCode(), effectiveSensorType, value, unit, timestampStr != null ? timestampStr : timestamp.toString());
 
-        // 11. Update sensor status & lastSeen (US19)
+        // 12. Actualisation de l'état du capteur (US19)
         sensor.setLastSeen(now);
         if (sensor.getStatus() == SensorStatus.OFFLINE) {
             sensor.setStatus(SensorStatus.ONLINE);
@@ -212,75 +247,165 @@ public class SensorReadingService {
             sensorService.save(sensor);
         }
 
-        // 12. Check thresholds & create alerts if applicable
-        checkThresholdsAndAlert(machine, sensor, effectiveSensorType, value, timestamp);
-
-        // 13. Broadcast reading via STOMP (US25)
-        realtimeMessageService.broadcastReading(savedReading, machine.getCode());
-
-        return savedReading;
-    }
-
-    /**
-     * Finds machine by unique code (e.g. CNC-024) or internal MongoDB ID.
-     */
-    public Optional<Machine> findMachineByCodeOrId(String identifier) {
-        if (!StringUtils.hasText(identifier)) {
-            return Optional.empty();
-        }
-        Optional<Machine> byCode = machineRepository.findByCode(identifier.trim());
-        if (byCode.isPresent()) {
-            return byCode;
-        }
-        return machineRepository.findById(identifier.trim());
-    }
-
-    /**
-     * Parses ISO-8601 timestamps with Z, timezone offsets, or local naive timestamps.
-     */
-    private Instant parseTimestamp(String ts) {
-        if (!StringUtils.hasText(ts)) {
-            return null;
-        }
-        try {
-            return Instant.parse(ts.trim());
-        } catch (DateTimeParseException ignored) {
-            try {
-                // Support naive ISO timestamps like 2026-09-18T20:15:30 produced by simulator
-                LocalDateTime ldt = LocalDateTime.parse(ts.trim());
-                return ldt.toInstant(ZoneOffset.UTC);
-            } catch (Exception ex) {
-                return null;
-            }
-        }
-    }
-
-    /**
-     * Verifies physical thresholds dynamically evaluated from database/cache and persists an Alert when limits are breached.
-     */
-    private void checkThresholdsAndAlert(Machine machine, Sensor sensor, SensorType type, double value, Instant timestamp) {
-        MachineThreshold.EvaluationResult evaluation = machineThresholdService.evaluateReading(machine, type, value);
-
+        // 13. Déclenchement d'alerte si seuil dépassé
         if (evaluation != null && evaluation.isAlertTriggered()) {
-            String severity = evaluation.getSeverity();
-            Double threshold = evaluation.getBreachedThreshold();
-            String message = evaluation.getMessage();
-
-            Alert alert = new Alert(machine.getId(), sensor.getId(), type, severity, value, threshold, message, timestamp);
+            Alert alert = new Alert(
+                    machine.getId(),
+                    sensor.getId(),
+                    effectiveSensorType,
+                    evaluation.getSeverity(),
+                    value,
+                    evaluation.getBreachedThreshold(),
+                    evaluation.getMessage(),
+                    timestamp
+            );
             Alert savedAlert = alertRepository.save(alert);
-            log.warn("Created alert [{}] on machine [{}]: {}", severity, machine.getCode(), message);
+            log.warn("Created alert [{}] on machine [{}]: {}", evaluation.getSeverity(), machine.getCode(), evaluation.getMessage());
             realtimeMessageService.broadcastAlert(savedAlert, machine.getCode());
         }
+
+        // 14. Diffusion WebSocket IMMÉDIATE (US25) - Aucun retard de 20s
+        realtimeMessageService.broadcastReading(reading, machine.getCode());
+
+        // 15. Envoi dans le buffer mémoire pour la persistance par lots toutes les 20 secondes (Partie B)
+        historyBufferService.enqueue(reading);
+
+        return reading;
     }
 
     /**
-     * History consultation with machine, dates, sensorType and pagination.
+     * Récupère la mesure courante d'un capteur pour une machine (US20, US21, US22, US23).
+     */
+    public Map<String, Object> getCurrentSensorReading(String machineIdOrCode, SensorType sensorType) {
+        Machine machine = resolveMachine(machineIdOrCode);
+
+        // 1. Chercher d'abord dans le cache temps réel O(1)
+        SensorReading reading = telemetryCacheService.getLatestReading(machine.getId(), sensorType)
+                .orElseGet(() -> telemetryCacheService.getLatestReading(machine.getCode(), sensorType)
+                        .orElse(null));
+
+        // 2. Si pas en cache (démarrage du backend), chercher la dernière mesure persistée
+        if (reading == null) {
+            Page<SensorReading> p = readingRepository.findByMachineIdAndSensorType(
+                    machine.getId(), sensorType, PageRequest.of(0, 1, Sort.by(Sort.Direction.DESC, "timestamp"))
+            );
+            if (p.hasContent()) {
+                reading = p.getContent().get(0);
+                telemetryCacheService.updateLatestReading(reading, machine.getCode());
+            }
+        }
+
+        MachineThreshold threshold = machineThresholdService.getThresholdCached(machine, sensorType);
+
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("machineId", machine.getId());
+        res.put("machineCode", machine.getCode());
+        res.put("sensorType", sensorType.name());
+
+        if (reading != null) {
+            res.put("value", reading.getValue());
+            res.put("unit", reading.getUnit());
+            res.put("timestamp", reading.getTimestamp().toString());
+
+            MachineThreshold.EvaluationResult eval = threshold != null
+                    ? threshold.evaluate(reading.getValue())
+                    : MachineThreshold.EvaluationResult.safe();
+
+            res.put("status", eval.getStatus());
+            res.put("thresholdBreached", eval.isAlertTriggered());
+            res.put("severity", eval.getSeverity());
+            res.put("breachedThreshold", eval.getBreachedThreshold());
+        } else {
+            res.put("value", null);
+            res.put("unit", sensorType.getDefaultUnit());
+            res.put("timestamp", null);
+            res.put("status", "NO_DATA");
+            res.put("thresholdBreached", false);
+            res.put("severity", "NONE");
+            res.put("breachedThreshold", null);
+        }
+
+        if (threshold != null) {
+            res.put("warningMin", threshold.getWarningMin());
+            res.put("warningMax", threshold.getWarningMax());
+            res.put("criticalMin", threshold.getCriticalMin());
+            res.put("criticalMax", threshold.getCriticalMax());
+        }
+
+        return res;
+    }
+
+    /**
+     * Résumé complet de télémétrie après reconnexion WebSocket (US25).
+     */
+    public Map<String, Object> getLatestTelemetrySummary(String machineIdOrCode) {
+        Machine machine = resolveMachine(machineIdOrCode);
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("machineId", machine.getId());
+        res.put("machineCode", machine.getCode());
+        res.put("status", machine.getStatus() != null ? machine.getStatus().name() : "IDLE");
+
+        Map<String, Object> sensors = new LinkedHashMap<>();
+        for (SensorType type : SensorType.values()) {
+            sensors.put(type.name().toLowerCase(), getCurrentSensorReading(machine.getId(), type));
+        }
+        res.put("sensors", sensors);
+        res.put("timestamp", Instant.now().toString());
+
+        return res;
+    }
+
+    /**
+     * Consultation de l'état de la machine (US24).
+     */
+    public Map<String, Object> getMachineStatusInfo(String machineIdOrCode) {
+        Machine machine = resolveMachine(machineIdOrCode);
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("machineId", machine.getId());
+        res.put("machineCode", machine.getCode());
+        res.put("name", machine.getName());
+        res.put("status", machine.getStatus() != null ? machine.getStatus().name() : "IDLE");
+
+        Optional<Instant> lastSeen = telemetryCacheService.getLastSeen(machine.getId());
+        if (lastSeen.isEmpty()) {
+            lastSeen = telemetryCacheService.getLastSeen(machine.getCode());
+        }
+        res.put("lastSeen", lastSeen.map(Instant::toString).orElse(null));
+        res.put("isOnline", machine.getStatus() == MachineStatus.RUNNING || machine.getStatus() == MachineStatus.IDLE);
+        return res;
+    }
+
+    /**
+     * Mise à jour de l'état machine (US24).
+     */
+    public Machine updateMachineStatus(String machineIdOrCode, MachineStatus newStatus) {
+        if (newStatus == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR: Le statut de la machine est obligatoire");
+        }
+        Machine machine = resolveMachine(machineIdOrCode);
+        machine.setStatus(newStatus);
+        Machine saved = machineRepository.save(machine);
+
+        telemetryCacheService.setMachineStatus(machine.getId(), newStatus);
+        telemetryCacheService.setMachineStatus(machine.getCode(), newStatus);
+        realtimeMessageService.broadcastMachineStatus(saved);
+
+        log.info("Statut machine mis à jour manuellement: [{}] -> {}", saved.getCode(), newStatus);
+        return saved;
+    }
+
+    /**
+     * Consultation de l'historique paginé dans la base dédiée SmartFactoryHistory (US26).
      * GET /api/machines/{id}/readings
      */
     public Map<String, Object> getReadings(String machineIdOrCode, Instant from, Instant to, SensorType sensorType, Pageable pageable) {
-        Machine machine = findMachineByCodeOrId(machineIdOrCode)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
-                        "MACHINE_NOT_FOUND: Machine not found with id: " + machineIdOrCode));
+        Machine machine = resolveMachine(machineIdOrCode);
+
+        // Validation des dates
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "VALIDATION_ERROR: La date de début ('from') doit être antérieure à la date de fin ('to')");
+        }
 
         String machineId = machine.getId();
         Page<SensorReading> page;
@@ -302,5 +427,134 @@ public class SensorReadingService {
         response.put("totalElements", page.getTotalElements());
         response.put("totalPages", page.getTotalPages());
         return response;
+    }
+
+    /**
+     * Séries temporelles pour affichage graphique avec filtrage par période (US27 & US28).
+     */
+    public Map<String, Object> getTimeseries(String machineIdOrCode, SensorType sensorType,
+                                             String period, Instant from, Instant to,
+                                             String aggregate, int maxPoints) {
+        Machine machine = resolveMachine(machineIdOrCode);
+
+        Instant[] bounds = resolvePeriodBounds(period, from, to);
+        Instant effectiveFrom = bounds[0];
+        Instant effectiveTo = bounds[1];
+
+        if (effectiveFrom.isAfter(effectiveTo)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "VALIDATION_ERROR: La date de début ('from') doit être antérieure à la date de fin ('to')");
+        }
+
+        Sort sort = Sort.by(Sort.Direction.ASC, "timestamp");
+        List<SensorReading> raw;
+
+        if (sensorType != null) {
+            raw = readingRepository.findByMachineIdAndSensorTypeAndTimestampBetween(machine.getId(), sensorType, effectiveFrom, effectiveTo, sort);
+        } else {
+            raw = readingRepository.findByMachineIdAndTimestampBetween(machine.getId(), effectiveFrom, effectiveTo, sort);
+        }
+
+        List<Map<String, Object>> points = new ArrayList<>();
+        int boundedMax = Math.max(10, Math.min(maxPoints, 2000));
+
+        if (raw.size() <= boundedMax || "none".equalsIgnoreCase(aggregate)) {
+            for (SensorReading r : raw) {
+                Map<String, Object> pt = new LinkedHashMap<>();
+                pt.put("timestamp", r.getTimestamp().toString());
+                pt.put("value", r.getValue());
+                pt.put("unit", r.getUnit());
+                pt.put("sensorType", r.getSensorType() != null ? r.getSensorType().name() : null);
+                points.add(pt);
+            }
+        } else {
+            // Échantillonnage / agrégation préservant l'intégrité industrielle
+            int step = (int) Math.ceil((double) raw.size() / boundedMax);
+            for (int i = 0; i < raw.size(); i += step) {
+                int end = Math.min(i + step, raw.size());
+                List<SensorReading> window = raw.subList(i, end);
+
+                double avg = window.stream().mapToDouble(SensorReading::getValue).average().orElse(0.0);
+                SensorReading representative = window.get(window.size() / 2);
+
+                Map<String, Object> pt = new LinkedHashMap<>();
+                pt.put("timestamp", representative.getTimestamp().toString());
+                pt.put("value", Math.round(avg * 100.0) / 100.0);
+                pt.put("unit", representative.getUnit());
+                pt.put("sensorType", representative.getSensorType() != null ? representative.getSensorType().name() : null);
+                points.add(pt);
+            }
+        }
+
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("machineId", machine.getId());
+        res.put("machineCode", machine.getCode());
+        res.put("sensorType", sensorType != null ? sensorType.name() : "ALL");
+        res.put("from", effectiveFrom.toString());
+        res.put("to", effectiveTo.toString());
+        res.put("period", period);
+        res.put("totalPoints", points.size());
+        res.put("points", points);
+
+        return res;
+    }
+
+    /**
+     * Résolution des périodes rapides (US28) : 1h, 24h, 7d, 30d en horodatages UTC explicites.
+     */
+    public Instant[] resolvePeriodBounds(String period, Instant from, Instant to) {
+        Instant now = Instant.now();
+        if (StringUtils.hasText(period)) {
+            switch (period.trim().toLowerCase()) {
+                case "1h":
+                    return new Instant[]{now.minus(1, ChronoUnit.HOURS), now};
+                case "24h":
+                    return new Instant[]{now.minus(24, ChronoUnit.HOURS), now};
+                case "7d":
+                    return new Instant[]{now.minus(7, ChronoUnit.DAYS), now};
+                case "30d":
+                    return new Instant[]{now.minus(30, ChronoUnit.DAYS), now};
+                default:
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                            "VALIDATION_ERROR: Période non reconnue '" + period + "'. Valeurs valides: 1h, 24h, 7d, 30d");
+            }
+        }
+
+        Instant effectiveFrom = from != null ? from : now.minus(24, ChronoUnit.HOURS);
+        Instant effectiveTo = to != null ? to : now;
+        return new Instant[]{effectiveFrom, effectiveTo};
+    }
+
+    public Machine resolveMachine(String machineIdOrCode) {
+        return findMachineByCodeOrId(machineIdOrCode)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+                        "MACHINE_NOT_FOUND: Machine not found with id: " + machineIdOrCode));
+    }
+
+    public Optional<Machine> findMachineByCodeOrId(String identifier) {
+        if (!StringUtils.hasText(identifier)) {
+            return Optional.empty();
+        }
+        Optional<Machine> byCode = machineRepository.findByCode(identifier.trim());
+        if (byCode.isPresent()) {
+            return byCode;
+        }
+        return machineRepository.findById(identifier.trim());
+    }
+
+    private Instant parseTimestamp(String ts) {
+        if (!StringUtils.hasText(ts)) {
+            return null;
+        }
+        try {
+            return Instant.parse(ts.trim());
+        } catch (DateTimeParseException ignored) {
+            try {
+                LocalDateTime ldt = LocalDateTime.parse(ts.trim());
+                return ldt.toInstant(ZoneOffset.UTC);
+            } catch (Exception ex) {
+                return null;
+            }
+        }
     }
 }

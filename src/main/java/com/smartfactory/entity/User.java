@@ -41,6 +41,7 @@ public class User {
     private String password;
 
     private Role role = Role.OPERATOR;
+    private String customRoleName;
     private String status = "ACTIVE"; // ACTIVE, INACTIVE
     private boolean emailVerified = true;
 
@@ -190,6 +191,21 @@ public class User {
 
     public void setRole(Role role) {
         this.role = role;
+    }
+
+    public String getCustomRoleName() {
+        return customRoleName;
+    }
+
+    public void setCustomRoleName(String customRoleName) {
+        this.customRoleName = customRoleName;
+    }
+
+    public String getEffectiveRoleName() {
+        if (customRoleName != null && !customRoleName.trim().isEmpty()) {
+            return customRoleName.trim().toUpperCase();
+        }
+        return role != null ? role.name() : "OPERATOR";
     }
 
     public String getStatus() {

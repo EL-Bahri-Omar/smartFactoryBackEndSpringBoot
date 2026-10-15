@@ -47,6 +47,18 @@ sensor:
   offline-timeout-seconds: ${SENSOR_OFFLINE_TIMEOUT_SECONDS:30}
   check-interval-ms: ${SENSOR_CHECK_INTERVAL_MS:10000}
 
+mongodb:
+  history:
+    uri: ${MONGODB_HISTORY_URI:mongodb://localhost:27017/SmartFactoryHistory}
+    database: ${MONGODB_HISTORY_DATABASE:SmartFactoryHistory}
+
+history:
+  batch:
+    flush-interval-ms: 20000
+    buffer-capacity: 10000
+    immediate-persist: true
+    max-retry-attempts: 3
+
 logging:
   level:
     root: INFO

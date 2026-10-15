@@ -18,6 +18,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.Optional;
+import java.util.Set;
+import com.smartfactory.service.RoleService;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -26,10 +28,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final UserRepository userRepository;
+    private final RoleService roleService;
 
-    public JwtAuthenticationFilter(JwtService jwtService, UserRepository userRepository) {
+    public JwtAuthenticationFilter(JwtService jwtService, UserRepository userRepository, RoleService roleService) {
         this.jwtService = jwtService;
         this.userRepository = userRepository;
+        this.roleService = roleService;
     }
 
     @Override
@@ -48,7 +52,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 if (userOptional.isPresent()) {
                     User user = userOptional.get();
                     if ("ACTIVE".equalsIgnoreCase(user.getStatus())) {
-                        UserPrincipal principal = UserPrincipal.create(user);
+                        Set<String> rolePrivileges = roleService.getPrivilegesForRoleName(user.getEffectiveRoleName());
+                        UserPrincipal principal = UserPrincipal.create(user, rolePrivileges);
                         UsernamePasswordAuthenticationToken authentication =
                                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities());
                         authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));

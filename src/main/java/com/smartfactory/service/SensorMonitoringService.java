@@ -93,6 +93,42 @@ public class SensorMonitoringService {
         if (transitionedCount > 0) {
             log.info("Offline sensor check completed: {} sensor(s) transitioned to OFFLINE", transitionedCount);
         }
+
+        // Vérifier l'état hors-ligne des machines (US24)
+        checkOfflineMachines(now);
+
+        return transitionedCount;
+    }
+
+    /**
+     * Détecte les machines hors ligne (US24).
+     * Si une machine RUNNING ou IDLE n'émet plus de données au-delà du délai,
+     * elle passe à OFFLINE et diffuse l'événement. L'état MAINTENANCE est préservé.
+     */
+    public int checkOfflineMachines(Instant now) {
+        List<Machine> machines = machineRepository.findAll();
+        int transitionedCount = 0;
+
+        for (Machine machine : machines) {
+            // Respecter l'état MAINTENANCE explicitement configuré
+            if (machine.getStatus() == com.smartfactory.entity.MachineStatus.MAINTENANCE ||
+                machine.getStatus() == com.smartfactory.entity.MachineStatus.OFFLINE) {
+                continue;
+            }
+
+            // Vérifier si tous les capteurs sont hors ligne ou absents
+            List<Sensor> sensors = sensorRepository.findByMachineId(machine.getId());
+            boolean allOffline = !sensors.isEmpty() && sensors.stream()
+                    .allMatch(s -> s.getStatus() == SensorStatus.OFFLINE);
+
+            if (allOffline) {
+                machine.setStatus(com.smartfactory.entity.MachineStatus.OFFLINE);
+                machineRepository.save(machine);
+                transitionedCount++;
+                log.warn("Machine [{}] n'émet plus de données -> passage à l'état OFFLINE", machine.getCode());
+                realtimeMessageService.broadcastMachineStatus(machine);
+            }
+        }
         return transitionedCount;
     }
 

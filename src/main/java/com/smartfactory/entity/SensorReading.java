@@ -3,28 +3,40 @@ package com.smartfactory.entity;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.Transient;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.index.CompoundIndexes;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 
+/**
+ * Modèle de document MongoDB pour la conservation de l'historique des mesures industrielles (Partie B & US26).
+ * Persisté exclusivement dans la base dédiée SmartFactoryHistory.
+ */
 @Document(collection = "sensor_readings")
 @CompoundIndexes({
         @CompoundIndex(name = "machine_ts_idx", def = "{'machineId': 1, 'timestamp': -1}"),
+        @CompoundIndex(name = "machineCode_ts_idx", def = "{'machineCode': 1, 'timestamp': -1}"),
         @CompoundIndex(name = "machine_type_ts_idx", def = "{'machineId': 1, 'sensorType': 1, 'timestamp': -1}"),
+        @CompoundIndex(name = "machineCode_type_ts_idx", def = "{'machineCode': 1, 'sensorType': 1, 'timestamp': -1}"),
         @CompoundIndex(name = "machine_sensor_ts_idx", def = "{'machineId': 1, 'sensorId': 1, 'timestamp': -1}"),
         @CompoundIndex(name = "dedup_idx", def = "{'machineId': 1, 'sensorId': 1, 'timestamp': 1}")
 })
 public class SensorReading {
 
     @Id
-    private String id;
+    private String id = new org.bson.types.ObjectId().toHexString();
 
     @Indexed
     @NotBlank(message = "Machine ID is required")
     private String machineId;
+
+    @Indexed
+    private String machineCode;
 
     @Indexed
     @NotBlank(message = "Sensor ID is required")
@@ -44,6 +56,11 @@ public class SensorReading {
     private Instant timestamp;
 
     private Instant serverReceivedAt;
+
+    private Map<String, Object> metadata = new HashMap<>();
+
+    @Transient
+    private int retryCount = 0;
 
     public SensorReading() {
     }
@@ -68,6 +85,17 @@ public class SensorReading {
         this.serverReceivedAt = serverReceivedAt != null ? serverReceivedAt : Instant.now();
     }
 
+    public SensorReading(String machineId, String machineCode, String sensorId, SensorType sensorType, Double value, String unit, Instant timestamp, Instant serverReceivedAt) {
+        this.machineId = machineId;
+        this.machineCode = machineCode;
+        this.sensorId = sensorId;
+        this.sensorType = sensorType;
+        this.value = value;
+        this.unit = unit;
+        this.timestamp = timestamp;
+        this.serverReceivedAt = serverReceivedAt != null ? serverReceivedAt : Instant.now();
+    }
+
     public String getId() {
         return id;
     }
@@ -82,6 +110,14 @@ public class SensorReading {
 
     public void setMachineId(String machineId) {
         this.machineId = machineId;
+    }
+
+    public String getMachineCode() {
+        return machineCode;
+    }
+
+    public void setMachineCode(String machineCode) {
+        this.machineCode = machineCode;
     }
 
     public String getSensorId() {
@@ -130,5 +166,25 @@ public class SensorReading {
 
     public void setServerReceivedAt(Instant serverReceivedAt) {
         this.serverReceivedAt = serverReceivedAt;
+    }
+
+    public Map<String, Object> getMetadata() {
+        return metadata;
+    }
+
+    public void setMetadata(Map<String, Object> metadata) {
+        this.metadata = metadata != null ? metadata : new HashMap<>();
+    }
+
+    public int getRetryCount() {
+        return retryCount;
+    }
+
+    public void setRetryCount(int retryCount) {
+        this.retryCount = retryCount;
+    }
+
+    public int incrementRetryCount() {
+        return ++this.retryCount;
     }
 }

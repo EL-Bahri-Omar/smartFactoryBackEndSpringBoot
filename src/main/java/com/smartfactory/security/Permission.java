@@ -13,9 +13,17 @@ public enum Permission {
     // === GESTION DES MACHINES ===
     MACHINE_READ("MACHINE_READ", "Consulter les machines et leurs capteurs", "MACHINES"),
     MACHINE_WRITE("MACHINE_WRITE", "Créer, modifier et supprimer des machines", "MACHINES"),
+    MACHINE_CREATE("MACHINE_CREATE", "Créer de nouvelles machines", "MACHINES"),
+    MACHINE_UPDATE("MACHINE_UPDATE", "Modifier les caractéristiques des machines", "MACHINES"),
+    MACHINE_DELETE("MACHINE_DELETE", "Supprimer des machines", "MACHINES"),
 
-    // === TÉLÉMÉTRIE ET LECTURES ===
+    // === TÉLÉMÉTRIE ET CAPTEURS ===
     READINGS_READ("READINGS_READ", "Consulter l'historique et les lectures de télémétrie", "READINGS"),
+    SENSOR_READ("SENSOR_READ", "Consulter la télémétrie et les capteurs en temps réel", "SENSORS"),
+    SENSOR_HISTORY_READ("SENSOR_HISTORY_READ", "Consulter l'historique des mesures des capteurs", "SENSORS"),
+
+    // === DASHBOARD ET SUPERVISION ===
+    DASHBOARD_READ("DASHBOARD_READ", "Consulter le tableau de bord et les KPI de supervision", "DASHBOARD"),
 
     // === SEUILS DE SURVEILLANCE ===
     THRESHOLD_READ("THRESHOLD_READ", "Consulter les seuils de surveillance des machines", "THRESHOLDS"),
@@ -28,7 +36,16 @@ public enum Permission {
     // === UTILISATEURS ET SÉCURITÉ ===
     USER_READ("USER_READ", "Consulter les utilisateurs du système", "USERS"),
     USER_WRITE("USER_WRITE", "Créer, modifier et supprimer des comptes utilisateurs", "USERS"),
+    USER_CREATE("USER_CREATE", "Créer de nouveaux comptes utilisateurs", "USERS"),
+    USER_UPDATE("USER_UPDATE", "Modifier les informations des utilisateurs", "USERS"),
+    USER_DELETE("USER_DELETE", "Supprimer des comptes utilisateurs", "USERS"),
     USER_PERMISSIONS_MANAGE("USER_PERMISSIONS_MANAGE", "Attribuer et personnaliser les privilèges des utilisateurs", "USERS"),
+
+    // === RÔLES ET PRIVILÈGES ===
+    ROLE_READ("ROLE_READ", "Consulter les rôles et leurs privilèges associés", "ROLES"),
+    ROLE_CREATE("ROLE_CREATE", "Créer de nouveaux rôles personnalisés", "ROLES"),
+    ROLE_UPDATE("ROLE_UPDATE", "Modifier les rôles et leurs privilèges", "ROLES"),
+    ROLE_DELETE("ROLE_DELETE", "Supprimer des rôles personnalisés", "ROLES"),
 
     // === GROUPES D'OPÉRATEURS ===
     GROUP_READ("GROUP_READ", "Consulter les groupes d'opérateurs", "GROUPS"),

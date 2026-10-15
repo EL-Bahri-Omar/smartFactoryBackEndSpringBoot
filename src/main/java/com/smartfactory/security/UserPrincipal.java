@@ -30,19 +30,46 @@ public class UserPrincipal implements UserDetails {
     }
 
     public static UserPrincipal create(User user) {
+        return create(user, null);
+    }
+
+    public static UserPrincipal create(User user, Set<String> dynamicRolePrivileges) {
         Set<GrantedAuthority> authorities = new HashSet<>();
 
-        // Rôle avec préfixe ROLE_ pour rétrocompatibilité
-        if (user.getRole() != null) {
-            authorities.add(new SimpleGrantedAuthority("ROLE_" + user.getRole().name()));
+        // Rôle effectif avec préfixe ROLE_ pour Spring Security
+        String effectiveRoleName = user.getEffectiveRoleName();
+        if (effectiveRoleName != null && !effectiveRoleName.trim().isEmpty()) {
+            authorities.add(new SimpleGrantedAuthority("ROLE_" + effectiveRoleName.trim().toUpperCase()));
         }
 
-        // Permissions effectives (rôle + accordées - révoquées)
-        Set<Permission> effectivePermissions = user.getEffectivePermissions();
-        if (effectivePermissions != null) {
-            for (Permission perm : effectivePermissions) {
-                authorities.add(new SimpleGrantedAuthority(perm.name()));
+        Set<Permission> effectivePermissions = new HashSet<>();
+
+        // Privilèges de base hérités du rôle
+        if (dynamicRolePrivileges != null && !dynamicRolePrivileges.isEmpty()) {
+            for (String privCode : dynamicRolePrivileges) {
+                Permission p = Permission.fromCode(privCode);
+                if (p != null) {
+                    effectivePermissions.add(p);
+                }
+                authorities.add(new SimpleGrantedAuthority(privCode.trim().toUpperCase()));
             }
+        } else if (user.getRole() != null && user.getRole().getDefaultPermissions() != null) {
+            effectivePermissions.addAll(user.getRole().getDefaultPermissions());
+        }
+
+        // Privilèges explicitement accordés à l'utilisateur
+        if (user.getCustomGrantedPermissions() != null) {
+            effectivePermissions.addAll(user.getCustomGrantedPermissions());
+        }
+
+        // Privilèges explicitement révoqués pour l'utilisateur
+        if (user.getCustomRevokedPermissions() != null) {
+            effectivePermissions.removeAll(user.getCustomRevokedPermissions());
+        }
+
+        // Enregistrer toutes les permissions effectives comme GrantedAuthority
+        for (Permission perm : effectivePermissions) {
+            authorities.add(new SimpleGrantedAuthority(perm.name()));
         }
 
         return new UserPrincipal(

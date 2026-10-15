@@ -42,12 +42,14 @@ class SensorReadingServiceTest {
     private AlertRepository alertRepository;
 
     @Autowired
-    private ObjectMapper objectMapper;
+    private HistoryBufferService bufferService;
 
     private Machine machine;
 
     @BeforeEach
     void setUp() {
+        bufferService.setImmediatePersist(true);
+        bufferService.flushBuffer();
         readingRepository.deleteAll();
         sensorRepository.deleteAll();
         alertRepository.deleteAll();

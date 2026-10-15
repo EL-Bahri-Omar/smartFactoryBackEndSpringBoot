@@ -37,10 +37,15 @@ class MqttIntegrationTest {
     @Autowired
     private MachineRepository machineRepository;
 
+    @Autowired
+    private HistoryBufferService bufferService;
+
     private Machine machine;
 
     @BeforeEach
     void setUp() {
+        bufferService.setImmediatePersist(true);
+        bufferService.flushBuffer();
         readingRepository.deleteAll();
         sensorRepository.deleteAll();
         machineRepository.deleteAll();

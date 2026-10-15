@@ -134,4 +134,39 @@ public class RealtimeMessageService {
             log.error("Failed to broadcast alert: {}", ex.getMessage());
         }
     }
+
+    /**
+     * Broadcasts a machine status change (RUNNING, IDLE, MAINTENANCE, FAILURE, OFFLINE) (US24).
+     * Sent to /topic/machines/status, /topic/machines/{machineId}/status and /topic/machines/{machineCode}/status.
+     */
+    public void broadcastMachineStatus(com.smartfactory.entity.Machine machine) {
+        if (machine == null) {
+            return;
+        }
+        broadcastMachineStatus(machine.getId(), machine.getCode(), machine.getStatus());
+    }
+
+    public void broadcastMachineStatus(String machineId, String machineCode, com.smartfactory.entity.MachineStatus status) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("eventType", "MACHINE_STATUS");
+        payload.put("machineId", machineId);
+        if (StringUtils.hasText(machineCode)) {
+            payload.put("machineCode", machineCode);
+        }
+        payload.put("status", status != null ? status.name() : null);
+        payload.put("timestamp", Instant.now().toString());
+
+        try {
+            messagingTemplate.convertAndSend("/topic/machines/status", payload);
+            if (StringUtils.hasText(machineId)) {
+                messagingTemplate.convertAndSend("/topic/machines/" + machineId + "/status", payload);
+            }
+            if (StringUtils.hasText(machineCode) && !machineCode.equals(machineId)) {
+                messagingTemplate.convertAndSend("/topic/machines/" + machineCode + "/status", payload);
+            }
+            log.info("Broadcasted machine status [{}] for machine [{}]", status, machineCode != null ? machineCode : machineId);
+        } catch (Exception ex) {
+            log.error("Failed to broadcast machine status for machine {}: {}", machineId, ex.getMessage());
+        }
+    }
 }

@@ -20,6 +20,9 @@ public enum Role {
             EnumSet.of(
                     Permission.MACHINE_READ,
                     Permission.READINGS_READ,
+                    Permission.SENSOR_READ,
+                    Permission.SENSOR_HISTORY_READ,
+                    Permission.DASHBOARD_READ,
                     Permission.ALERT_READ,
                     Permission.ZONE_READ,
                     Permission.GROUP_READ
@@ -31,6 +34,9 @@ public enum Role {
             EnumSet.of(
                     Permission.MACHINE_READ,
                     Permission.READINGS_READ,
+                    Permission.SENSOR_READ,
+                    Permission.SENSOR_HISTORY_READ,
+                    Permission.DASHBOARD_READ,
                     Permission.ALERT_READ,
                     Permission.ALERT_ACKNOWLEDGE,
                     Permission.THRESHOLD_READ,
@@ -44,7 +50,13 @@ public enum Role {
             EnumSet.of(
                     Permission.MACHINE_READ,
                     Permission.MACHINE_WRITE,
+                    Permission.MACHINE_CREATE,
+                    Permission.MACHINE_UPDATE,
+                    Permission.MACHINE_DELETE,
                     Permission.READINGS_READ,
+                    Permission.SENSOR_READ,
+                    Permission.SENSOR_HISTORY_READ,
+                    Permission.DASHBOARD_READ,
                     Permission.THRESHOLD_READ,
                     Permission.THRESHOLD_WRITE,
                     Permission.ALERT_READ,

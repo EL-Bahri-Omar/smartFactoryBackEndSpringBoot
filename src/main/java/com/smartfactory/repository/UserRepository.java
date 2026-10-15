@@ -31,4 +31,8 @@ public interface UserRepository extends MongoRepository<User, String> {
             "{ 'email': { $regex: ?0, $options: 'i' } } " +
             "] }")
     Page<User> searchUsersByRole(String query, com.smartfactory.security.Role role, Pageable pageable);
+
+    long countByRole(com.smartfactory.security.Role role);
+
+    long countByCustomRoleName(String customRoleName);
 }

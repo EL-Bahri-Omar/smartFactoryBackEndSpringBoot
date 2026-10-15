@@ -107,6 +107,10 @@ public class MachineThreshold {
         public String getMessage() {
             return message;
         }
+
+        public String getStatus() {
+            return severity != null ? severity : "NORMAL";
+        }
     }
 
     /**
