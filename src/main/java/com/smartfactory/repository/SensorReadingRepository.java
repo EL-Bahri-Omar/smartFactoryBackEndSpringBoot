@@ -44,7 +44,25 @@ public interface SensorReadingRepository extends MongoRepository<SensorReading, 
 
     boolean existsByMachineIdAndSensorIdAndTimestamp(String machineId, String sensorId, Instant timestamp);
 
+    boolean existsBySensorIdAndTimestamp(String sensorId, Instant timestamp);
+
     boolean existsByMachineIdAndSensorTypeAndTimestamp(String machineId, SensorType sensorType, Instant timestamp);
+
+    Page<SensorReading> findBySensorId(String sensorId, Pageable pageable);
+
+    Page<SensorReading> findBySensorIdAndTimestampBetween(String sensorId, Instant from, Instant to, Pageable pageable);
+
+    Page<SensorReading> findBySensorIdIn(java.util.Collection<String> sensorIds, Pageable pageable);
+
+    Page<SensorReading> findBySensorIdInAndTimestampBetween(java.util.Collection<String> sensorIds, Instant from, Instant to, Pageable pageable);
+
+    Page<SensorReading> findBySensorIdInAndSensorType(java.util.Collection<String> sensorIds, SensorType sensorType, Pageable pageable);
+
+    Page<SensorReading> findBySensorIdInAndSensorTypeAndTimestampBetween(java.util.Collection<String> sensorIds, SensorType sensorType, Instant from, Instant to, Pageable pageable);
+
+    List<SensorReading> findBySensorIdInAndTimestampBetween(java.util.Collection<String> sensorIds, Instant from, Instant to, Sort sort);
+
+    List<SensorReading> findBySensorIdInAndSensorTypeAndTimestampBetween(java.util.Collection<String> sensorIds, SensorType sensorType, Instant from, Instant to, Sort sort);
 
     void deleteByMachineId(String machineId);
 }

@@ -1,5 +1,6 @@
 package com.smartfactory.entity;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.data.annotation.Id;
@@ -14,11 +15,22 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Modèle de document MongoDB pour la conservation de l'historique des mesures industrielles (Partie B & US26).
- * Persisté exclusivement dans la base dédiée SmartFactoryHistory.
+ * Modèle de document MongoDB pour la conservation de l'historique des mesures industrielles (Partie 2.1 & US26).
+ * Persisté dans les bases hebdomadaires SmartFactory_History_YYYY_Www au format compact :
+ * {
+ *   _id: ObjectId(...),
+ *   sensorId: "...",
+ *   sensorType: "VIBRATION",
+ *   value: 2.15,
+ *   timestamp: ISODate(...)
+ * }
  */
 @Document(collection = "sensor_readings")
+@JsonInclude(JsonInclude.Include.NON_NULL)
 @CompoundIndexes({
+        @CompoundIndex(name = "sensorId_ts_idx", def = "{'sensorId': 1, 'timestamp': -1}"),
+        @CompoundIndex(name = "sensorId_type_ts_idx", def = "{'sensorId': 1, 'sensorType': 1, 'timestamp': -1}"),
+        @CompoundIndex(name = "ts_idx", def = "{'timestamp': -1}"),
         @CompoundIndex(name = "machine_ts_idx", def = "{'machineId': 1, 'timestamp': -1}"),
         @CompoundIndex(name = "machineCode_ts_idx", def = "{'machineCode': 1, 'timestamp': -1}"),
         @CompoundIndex(name = "machine_type_ts_idx", def = "{'machineId': 1, 'sensorType': 1, 'timestamp': -1}"),
@@ -32,7 +44,6 @@ public class SensorReading {
     private String id = new org.bson.types.ObjectId().toHexString();
 
     @Indexed
-    @NotBlank(message = "Machine ID is required")
     private String machineId;
 
     @Indexed
@@ -48,7 +59,6 @@ public class SensorReading {
     @NotNull(message = "Measurement value is required")
     private Double value;
 
-    @NotBlank(message = "Measurement unit is required")
     private String unit;
 
     @Indexed
@@ -57,7 +67,7 @@ public class SensorReading {
 
     private Instant serverReceivedAt;
 
-    private Map<String, Object> metadata = new HashMap<>();
+    private Map<String, Object> metadata;
 
     @Transient
     private int retryCount = 0;
@@ -145,7 +155,10 @@ public class SensorReading {
     }
 
     public String getUnit() {
-        return unit;
+        if (unit != null) {
+            return unit;
+        }
+        return sensorType != null ? sensorType.getDefaultUnit() : null;
     }
 
     public void setUnit(String unit) {
@@ -169,11 +182,23 @@ public class SensorReading {
     }
 
     public Map<String, Object> getMetadata() {
+        if (metadata == null) {
+            metadata = new HashMap<>();
+        }
         return metadata;
     }
 
     public void setMetadata(Map<String, Object> metadata) {
-        this.metadata = metadata != null ? metadata : new HashMap<>();
+        this.metadata = metadata;
+    }
+
+    public static SensorReading createCompact(String sensorId, SensorType sensorType, Double value, Instant timestamp) {
+        SensorReading reading = new SensorReading();
+        reading.setSensorId(sensorId);
+        reading.setSensorType(sensorType);
+        reading.setValue(value);
+        reading.setTimestamp(timestamp != null ? timestamp : Instant.now());
+        return reading;
     }
 
     public int getRetryCount() {

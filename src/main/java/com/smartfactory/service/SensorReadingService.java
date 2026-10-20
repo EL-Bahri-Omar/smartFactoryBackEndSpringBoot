@@ -47,6 +47,9 @@ public class SensorReadingService {
     private final MachineThresholdService machineThresholdService;
     private final HistoryBufferService historyBufferService;
     private final TelemetryCacheService telemetryCacheService;
+    private final AnomalyService anomalyService;
+    private final AlertService alertService;
+    private final WeeklyHistoryDatabaseService weeklyHistoryDatabaseService;
 
     public SensorReadingService(SensorReadingRepository readingRepository,
                                 MachineRepository machineRepository,
@@ -56,7 +59,10 @@ public class SensorReadingService {
                                 ObjectMapper objectMapper,
                                 MachineThresholdService machineThresholdService,
                                 HistoryBufferService historyBufferService,
-                                TelemetryCacheService telemetryCacheService) {
+                                TelemetryCacheService telemetryCacheService,
+                                AnomalyService anomalyService,
+                                AlertService alertService,
+                                WeeklyHistoryDatabaseService weeklyHistoryDatabaseService) {
         this.readingRepository = readingRepository;
         this.machineRepository = machineRepository;
         this.sensorService = sensorService;
@@ -66,6 +72,9 @@ public class SensorReadingService {
         this.machineThresholdService = machineThresholdService;
         this.historyBufferService = historyBufferService;
         this.telemetryCacheService = telemetryCacheService;
+        this.anomalyService = anomalyService;
+        this.alertService = alertService;
+        this.weeklyHistoryDatabaseService = weeklyHistoryDatabaseService;
     }
 
     /**
@@ -247,21 +256,26 @@ public class SensorReadingService {
             sensorService.save(sensor);
         }
 
-        // 13. Déclenchement d'alerte si seuil dépassé
+        // 13. Déclenchement d'anomalie et d'alerte avec déduplication (US33, US37, US38, US40)
         if (evaluation != null && evaluation.isAlertTriggered()) {
-            Alert alert = new Alert(
-                    machine.getId(),
-                    sensor.getId(),
+            var anomalyOpt = anomalyService.processReadingAnomaly(
+                    machine,
+                    sensor,
                     effectiveSensorType,
-                    evaluation.getSeverity(),
                     value,
-                    evaluation.getBreachedThreshold(),
-                    evaluation.getMessage(),
+                    evaluation,
                     timestamp
             );
-            Alert savedAlert = alertRepository.save(alert);
-            log.warn("Created alert [{}] on machine [{}]: {}", evaluation.getSeverity(), machine.getCode(), evaluation.getMessage());
-            realtimeMessageService.broadcastAlert(savedAlert, machine.getCode());
+            if (anomalyOpt.isPresent()) {
+                alertService.createOrUpdateAlertForAnomaly(
+                        anomalyOpt.get(),
+                        machine,
+                        evaluation.getSeverity(),
+                        value,
+                        evaluation.getBreachedThreshold(),
+                        evaluation.getMessage()
+                );
+            }
         }
 
         // 14. Diffusion WebSocket IMMÉDIATE (US25) - Aucun retard de 20s
@@ -446,17 +460,11 @@ public class SensorReadingService {
                     "VALIDATION_ERROR: La date de début ('from') doit être antérieure à la date de fin ('to')");
         }
 
+        int boundedMax = Math.max(10, Math.min(maxPoints, 2000));
         Sort sort = Sort.by(Sort.Direction.ASC, "timestamp");
-        List<SensorReading> raw;
-
-        if (sensorType != null) {
-            raw = readingRepository.findByMachineIdAndSensorTypeAndTimestampBetween(machine.getId(), sensorType, effectiveFrom, effectiveTo, sort);
-        } else {
-            raw = readingRepository.findByMachineIdAndTimestampBetween(machine.getId(), effectiveFrom, effectiveTo, sort);
-        }
+        List<SensorReading> raw = fetchHistoricalReadings(machine, sensorType, effectiveFrom, effectiveTo, sort, boundedMax * 2);
 
         List<Map<String, Object>> points = new ArrayList<>();
-        int boundedMax = Math.max(10, Math.min(maxPoints, 2000));
 
         if (raw.size() <= boundedMax || "none".equalsIgnoreCase(aggregate)) {
             for (SensorReading r : raw) {
@@ -497,6 +505,53 @@ public class SensorReadingService {
         res.put("points", points);
 
         return res;
+    }
+
+    /**
+     * Recherche les mesures dans les bases historiques (SmartFactoryHistory et bases hebdomadaires SmartFactory_History_YYYY_Www).
+     */
+    public List<SensorReading> fetchHistoricalReadings(Machine machine, SensorType sensorType, Instant from, Instant to, Sort sort, int limit) {
+        Sort effectiveSort = sort != null ? sort : Sort.by(Sort.Direction.ASC, "timestamp");
+        List<SensorReading> legacy;
+        if (sensorType != null && from != null && to != null) {
+            legacy = readingRepository.findByMachineIdAndSensorTypeAndTimestampBetween(machine.getId(), sensorType, from, to, effectiveSort);
+        } else if (from != null && to != null) {
+            legacy = readingRepository.findByMachineIdAndTimestampBetween(machine.getId(), from, to, effectiveSort);
+        } else if (sensorType != null) {
+            legacy = readingRepository.findByMachineIdAndSensorType(machine.getId(), sensorType, PageRequest.of(0, Math.max(limit, 500), effectiveSort)).getContent();
+        } else {
+            legacy = readingRepository.findByMachineId(machine.getId(), PageRequest.of(0, Math.max(limit, 500), effectiveSort)).getContent();
+        }
+
+        List<String> sensorIds = sensorService.getSensorsByMachine(machine.getId()).stream()
+                .filter(s -> sensorType == null || s.getType() == sensorType)
+                .map(Sensor::getId)
+                .toList();
+
+        List<SensorReading> weekly = weeklyHistoryDatabaseService.findReadingsInWeeklyDatabases(sensorIds, sensorType, from, to, effectiveSort, limit);
+
+        for (SensorReading r : weekly) {
+            if (r.getMachineId() == null) r.setMachineId(machine.getId());
+            if (r.getMachineCode() == null) r.setMachineCode(machine.getCode());
+        }
+
+        if (weekly.isEmpty()) {
+            return legacy;
+        }
+
+        Map<String, SensorReading> mergedMap = new LinkedHashMap<>();
+        for (SensorReading r : legacy) {
+            String key = r.getSensorId() + "_" + r.getTimestamp();
+            mergedMap.put(key, r);
+        }
+        for (SensorReading r : weekly) {
+            String key = r.getSensorId() + "_" + r.getTimestamp();
+            mergedMap.putIfAbsent(key, r);
+        }
+
+        List<SensorReading> merged = new ArrayList<>(mergedMap.values());
+        merged.sort((a, b) -> a.getTimestamp().compareTo(b.getTimestamp()));
+        return merged;
     }
 
     /**

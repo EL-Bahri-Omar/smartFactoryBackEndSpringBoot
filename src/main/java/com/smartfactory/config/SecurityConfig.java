@@ -100,6 +100,29 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.DELETE, "/api/groups/**").hasAnyAuthority("ROLE_ADMIN", "GROUP_WRITE")
                         .requestMatchers(HttpMethod.GET, "/api/groups/**").hasAnyAuthority("ROLE_ADMIN", "GROUP_READ")
 
+                        // Functional modules & privileges (Partie 2.4)
+                        .requestMatchers(HttpMethod.GET, "/api/modules/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_READ", "USER_READ")
+                        .requestMatchers(HttpMethod.POST, "/api/modules/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_CREATE", "ROLE_UPDATE")
+                        .requestMatchers(HttpMethod.PUT, "/api/modules/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_UPDATE")
+                        .requestMatchers(HttpMethod.DELETE, "/api/modules/**").hasAnyAuthority("ROLE_ADMIN", "ROLE_DELETE")
+
+                        // Weekly history databases & retention (Partie 2.2)
+                        .requestMatchers(HttpMethod.GET, "/api/history/**").hasAnyAuthority("ROLE_ADMIN", "READINGS_READ", "DASHBOARD_READ")
+                        .requestMatchers(HttpMethod.POST, "/api/history/**").hasAuthority("ROLE_ADMIN")
+
+                        // Alerts & Anomalies (Sprint 5)
+                        .requestMatchers(HttpMethod.GET, "/api/alerts/**", "/api/anomalies/**").hasAnyAuthority("ROLE_ADMIN", "ALERT_READ", "ALERT:CONSULTER", "TECHNICIAN", "OPERATOR", "RESPONSABLE_INDUSTRIEL")
+                        .requestMatchers(HttpMethod.POST, "/api/alerts/**").hasAnyAuthority("ROLE_ADMIN", "ALERT_WRITE", "ALERT:ACQUITTER", "ALERT:MODIFIER", "TECHNICIAN", "RESPONSABLE_INDUSTRIEL")
+                        .requestMatchers(HttpMethod.PUT, "/api/alerts/**", "/api/anomalies/**").hasAnyAuthority("ROLE_ADMIN", "ALERT_ACKNOWLEDGE", "ALERT_WRITE", "ALERT:MODIFIER", "TECHNICIAN", "RESPONSABLE_INDUSTRIEL")
+
+                        // Maintenance & Interventions (Sprint 6)
+                        .requestMatchers(HttpMethod.GET, "/api/maintenance/**").hasAnyAuthority("ROLE_ADMIN", "MAINTENANCE_READ", "READINGS_READ", "TECHNICIAN", "RESPONSABLE_INDUSTRIEL")
+                        .requestMatchers(HttpMethod.POST, "/api/maintenance/**").hasAnyAuthority("ROLE_ADMIN", "MAINTENANCE_WRITE", "TECHNICIAN", "RESPONSABLE_INDUSTRIEL")
+                        .requestMatchers(HttpMethod.PUT, "/api/maintenance/**").hasAnyAuthority("ROLE_ADMIN", "MAINTENANCE_WRITE", "TECHNICIAN", "RESPONSABLE_INDUSTRIEL")
+
+                        // Notifications & device tokens
+                        .requestMatchers("/api/notifications/**").authenticated()
+
                         // Any other request requires authentication
                         .anyRequest().authenticated()
                 )

@@ -47,11 +47,17 @@ public class UserPrincipal implements UserDetails {
         // Privilèges de base hérités du rôle
         if (dynamicRolePrivileges != null && !dynamicRolePrivileges.isEmpty()) {
             for (String privCode : dynamicRolePrivileges) {
-                Permission p = Permission.fromCode(privCode);
+                if (privCode == null || privCode.isBlank()) continue;
+                String normalized = privCode.trim().toUpperCase();
+                Permission p = Permission.fromCode(normalized);
                 if (p != null) {
                     effectivePermissions.add(p);
                 }
-                authorities.add(new SimpleGrantedAuthority(privCode.trim().toUpperCase()));
+                authorities.add(new SimpleGrantedAuthority(normalized));
+                authorities.add(new SimpleGrantedAuthority(normalized.replace(":", "_")));
+
+                // Pont sémantique vers les permissions système existantes
+                mapDynamicToSystemAuthority(normalized, authorities);
             }
         } else if (user.getRole() != null && user.getRole().getDefaultPermissions() != null) {
             effectivePermissions.addAll(user.getRole().getDefaultPermissions());
@@ -141,5 +147,91 @@ public class UserPrincipal implements UserDetails {
     @Override
     public boolean isEnabled() {
         return "ACTIVE".equalsIgnoreCase(status);
+    }
+
+    private static void mapDynamicToSystemAuthority(String code, Set<GrantedAuthority> authorities) {
+        if (code == null) return;
+        switch (code) {
+            case "USER:CONSULTER":
+                authorities.add(new SimpleGrantedAuthority("USER_READ"));
+                break;
+            case "USER:AJOUTER":
+            case "USER:MODIFIER":
+            case "USER:SUPPRIMER":
+                authorities.add(new SimpleGrantedAuthority("USER_WRITE"));
+                break;
+            case "USER:GERER_PERMISSIONS":
+                authorities.add(new SimpleGrantedAuthority("USER_PERMISSIONS_MANAGE"));
+                break;
+            case "MACHINE:CONSULTER":
+                authorities.add(new SimpleGrantedAuthority("MACHINE_READ"));
+                break;
+            case "MACHINE:AJOUTER":
+            case "MACHINE:MODIFIER":
+            case "MACHINE:SUPPRIMER":
+                authorities.add(new SimpleGrantedAuthority("MACHINE_WRITE"));
+                break;
+            case "SENSOR:CONSULTER":
+                authorities.add(new SimpleGrantedAuthority("SENSOR_READ"));
+                break;
+            case "SENSOR:HISTORIQUE":
+                authorities.add(new SimpleGrantedAuthority("READINGS_READ"));
+                authorities.add(new SimpleGrantedAuthority("SENSOR_HISTORY_READ"));
+                break;
+            case "THRESHOLD:CONSULTER":
+                authorities.add(new SimpleGrantedAuthority("THRESHOLD_READ"));
+                break;
+            case "THRESHOLD:MODIFIER":
+                authorities.add(new SimpleGrantedAuthority("THRESHOLD_WRITE"));
+                break;
+            case "ALERT:CONSULTER":
+                authorities.add(new SimpleGrantedAuthority("ALERT_READ"));
+                break;
+            case "ALERT:ACQUITTER":
+                authorities.add(new SimpleGrantedAuthority("ALERT_ACKNOWLEDGE"));
+                break;
+            case "MAINTENANCE:CONSULTER":
+                authorities.add(new SimpleGrantedAuthority("MAINTENANCE_READ"));
+                break;
+            case "MAINTENANCE:CREER":
+            case "MAINTENANCE:ASSIGNER":
+            case "MAINTENANCE:DIAGNOSTIQUER":
+            case "MAINTENANCE:CLOTURER":
+                authorities.add(new SimpleGrantedAuthority("MAINTENANCE_WRITE"));
+                break;
+            case "ZONE:CONSULTER":
+                authorities.add(new SimpleGrantedAuthority("ZONE_READ"));
+                break;
+            case "ZONE:AJOUTER":
+            case "ZONE:MODIFIER":
+            case "ZONE:SUPPRIMER":
+                authorities.add(new SimpleGrantedAuthority("ZONE_WRITE"));
+                break;
+            case "GROUP:CONSULTER":
+                authorities.add(new SimpleGrantedAuthority("GROUP_READ"));
+                break;
+            case "GROUP:AJOUTER":
+            case "GROUP:MODIFIER":
+            case "GROUP:SUPPRIMER":
+                authorities.add(new SimpleGrantedAuthority("GROUP_WRITE"));
+                break;
+            case "DASHBOARD:CONSULTER":
+                authorities.add(new SimpleGrantedAuthority("DASHBOARD_READ"));
+                break;
+            case "ROLE:CONSULTER":
+                authorities.add(new SimpleGrantedAuthority("ROLE_READ"));
+                break;
+            case "ROLE:AJOUTER":
+                authorities.add(new SimpleGrantedAuthority("ROLE_CREATE"));
+                break;
+            case "ROLE:MODIFIER":
+                authorities.add(new SimpleGrantedAuthority("ROLE_UPDATE"));
+                break;
+            case "ROLE:SUPPRIMER":
+                authorities.add(new SimpleGrantedAuthority("ROLE_DELETE"));
+                break;
+            default:
+                break;
+        }
     }
 }

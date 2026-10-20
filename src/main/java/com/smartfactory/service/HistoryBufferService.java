@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -37,6 +38,7 @@ public class HistoryBufferService {
     private static final Logger log = LoggerFactory.getLogger(HistoryBufferService.class);
 
     private final MongoTemplate historyMongoTemplate;
+    private final WeeklyHistoryDatabaseService weeklyHistoryDatabaseService;
 
     @Value("${history.batch.buffer-capacity:10000}")
     private int bufferCapacity = 10000;
@@ -48,6 +50,7 @@ public class HistoryBufferService {
     private int maxRetryAttempts = 3;
 
     private final ConcurrentLinkedQueue<SensorReading> buffer = new ConcurrentLinkedQueue<>();
+    private final ConcurrentHashMap<String, SensorReading> latestSampleBuffer = new ConcurrentHashMap<>();
     private final AtomicInteger bufferSize = new AtomicInteger(0);
     private final AtomicBoolean isFlushing = new AtomicBoolean(false);
 
@@ -59,8 +62,10 @@ public class HistoryBufferService {
     private volatile Instant lastFlushTimestamp = Instant.now();
     private volatile long lastFlushDurationMs = 0;
 
-    public HistoryBufferService(@Qualifier("historyMongoTemplate") MongoTemplate historyMongoTemplate) {
+    public HistoryBufferService(@Qualifier("historyMongoTemplate") MongoTemplate historyMongoTemplate,
+                                WeeklyHistoryDatabaseService weeklyHistoryDatabaseService) {
         this.historyMongoTemplate = historyMongoTemplate;
+        this.weeklyHistoryDatabaseService = weeklyHistoryDatabaseService;
     }
 
     @PostConstruct
@@ -149,16 +154,39 @@ public class HistoryBufferService {
                 return 0;
             }
 
-            log.info("Début du cycle de persistance par lots vers SmartFactoryHistory: {} mesure(s) à sauvegarder...", batch.size());
+            log.info("Début du cycle de persistance par lots : {} mesure(s) à sauvegarder...", batch.size());
 
-            // Insertion groupée dans SmartFactoryHistory
-            historyMongoTemplate.insert(batch, SensorReading.class);
+            // 1. Sauvegarde dans la base hebdomadaire courante au format compact (Partie 2.1 & 2.2)
+            if (weeklyHistoryDatabaseService != null) {
+                try {
+                    String currentWeeklyDb = weeklyHistoryDatabaseService.getCurrentWeeklyDatabaseName();
+                    MongoTemplate weeklyTemplate = weeklyHistoryDatabaseService.getCurrentWeeklyMongoTemplate();
+                    List<SensorReading> compactBatch = new ArrayList<>();
+                    for (SensorReading r : batch) {
+                        compactBatch.add(SensorReading.createCompact(
+                                r.getSensorId(),
+                                r.getSensorType(),
+                                r.getValue(),
+                                r.getTimestamp()
+                        ));
+                    }
+                    weeklyTemplate.insert(compactBatch, "sensor_readings");
+                    log.info("Batch compact réussi dans {} : {} mesures écrites", currentWeeklyDb, compactBatch.size());
+                } catch (Exception ex) {
+                    log.warn("Persistance dans la base hebdomadaire différée : {}", ex.getMessage());
+                }
+            }
+
+            // 2. Insertion groupée dans la base historique principale pour rétrocompatibilité
+            if (historyMongoTemplate != null) {
+                historyMongoTemplate.insert(batch, SensorReading.class);
+            }
 
             totalPersistedCount.addAndGet(batch.size());
             lastFlushTimestamp = Instant.now();
             lastFlushDurationMs = System.currentTimeMillis() - startTime;
 
-            log.info("Batch MongoDB réussi: {} mesures sauvegardées dans SmartFactoryHistory en {} ms (buffer restant: {})",
+            log.info("Batch MongoDB réussi: {} mesures sauvegardées en {} ms (buffer restant: {})",
                     batch.size(), lastFlushDurationMs, bufferSize.get());
 
             return batch.size();

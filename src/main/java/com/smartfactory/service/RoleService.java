@@ -277,12 +277,15 @@ public class RoleService {
             if (!StringUtils.hasText(raw)) {
                 continue;
             }
-            Permission perm = Permission.fromCode(raw);
-            if (perm == null) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                        "INVALID_PRIVILEGE: Le privilège '" + raw + "' n'existe pas dans le catalogue SmartFactory");
+            String trimmed = raw.trim().toUpperCase();
+            Permission perm = Permission.fromCode(trimmed);
+            if (perm != null) {
+                validated.add(perm.name());
+            } else if (trimmed.contains(":")) {
+                validated.add(trimmed);
+            } else {
+                validated.add(trimmed);
             }
-            validated.add(perm.name());
         }
         return validated;
     }

@@ -41,7 +41,9 @@ public enum Role {
                     Permission.ALERT_ACKNOWLEDGE,
                     Permission.THRESHOLD_READ,
                     Permission.ZONE_READ,
-                    Permission.GROUP_READ
+                    Permission.GROUP_READ,
+                    Permission.MAINTENANCE_READ,
+                    Permission.MAINTENANCE_WRITE
             )
     ),
 
@@ -62,7 +64,9 @@ public enum Role {
                     Permission.ALERT_READ,
                     Permission.ALERT_ACKNOWLEDGE,
                     Permission.ZONE_READ,
-                    Permission.GROUP_READ
+                    Permission.GROUP_READ,
+                    Permission.MAINTENANCE_READ,
+                    Permission.MAINTENANCE_WRITE
             )
     );
 

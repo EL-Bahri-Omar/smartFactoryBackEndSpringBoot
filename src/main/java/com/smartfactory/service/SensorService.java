@@ -40,19 +40,37 @@ public class SensorService {
         return sensorRepository.findByMachineIdAndType(machineId, type);
     }
 
+    private final java.util.concurrent.ConcurrentHashMap<String, String> sensorToMachineCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public String getMachineIdForSensor(String sensorId) {
+        if (sensorId == null) return null;
+        return sensorToMachineCache.computeIfAbsent(sensorId, id ->
+                sensorRepository.findById(id).map(Sensor::getMachineId).orElse(null)
+        );
+    }
+
     public Sensor getOrCreateSensor(Machine machine, SensorType type, String unit) {
         return sensorRepository.findByMachineIdAndType(machine.getId(), type)
+                .map(sensor -> {
+                    sensorToMachineCache.put(sensor.getId(), sensor.getMachineId());
+                    return sensor;
+                })
                 .orElseGet(() -> {
                     String effectiveUnit = unit != null ? unit : type.getDefaultUnit();
                     Sensor sensor = new Sensor(machine.getId(), type, effectiveUnit);
                     Sensor saved = sensorRepository.save(sensor);
+                    sensorToMachineCache.put(saved.getId(), saved.getMachineId());
                     log.info("Auto-provisioned sensor [{}] for machine [{}] with unit [{}]", type, machine.getCode(), effectiveUnit);
                     return saved;
                 });
     }
 
     public Sensor save(Sensor sensor) {
-        return sensorRepository.save(sensor);
+        Sensor saved = sensorRepository.save(sensor);
+        if (saved.getId() != null && saved.getMachineId() != null) {
+            sensorToMachineCache.put(saved.getId(), saved.getMachineId());
+        }
+        return saved;
     }
 
     public List<Sensor> getSensorsByStatus(SensorStatus status) {

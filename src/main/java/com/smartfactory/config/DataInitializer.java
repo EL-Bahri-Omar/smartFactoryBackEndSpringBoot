@@ -26,21 +26,27 @@ public class DataInitializer implements CommandLineRunner {
     private final PasswordEncoder passwordEncoder;
     private final MachineThresholdService machineThresholdService;
     private final com.smartfactory.service.RoleService roleService;
+    private final com.smartfactory.service.FunctionalModuleService moduleService;
 
     public DataInitializer(UserRepository userRepository,
                            MachineRepository machineRepository,
                            PasswordEncoder passwordEncoder,
                            MachineThresholdService machineThresholdService,
-                           com.smartfactory.service.RoleService roleService) {
+                           com.smartfactory.service.RoleService roleService,
+                           com.smartfactory.service.FunctionalModuleService moduleService) {
         this.userRepository = userRepository;
         this.machineRepository = machineRepository;
         this.passwordEncoder = passwordEncoder;
         this.machineThresholdService = machineThresholdService;
         this.roleService = roleService;
+        this.moduleService = moduleService;
     }
 
     @Override
     public void run(String... args) {
+        // Initialiser les modules fonctionnels dynamiques (Partie 2.4)
+        moduleService.initializeDefaultModules();
+
         // Initialiser les rôles dynamiques système (ADMIN, OPERATOR, TECHNICIAN, RESPONSABLE_INDUSTRIEL)
         roleService.initializeDefaultRoles();
 

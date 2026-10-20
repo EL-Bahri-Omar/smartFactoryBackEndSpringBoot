@@ -60,11 +60,25 @@ public class MongoConfig {
         return converter;
     }
 
+    @Bean
+    public MongoClient mongoClient() {
+        MongoClientSettings settings = MongoClientSettings.builder()
+                .applyConnectionString(new ConnectionString(primaryUri))
+                .applyToSocketSettings(builder -> builder.connectTimeout(5, TimeUnit.SECONDS))
+                .applyToClusterSettings(builder -> builder.serverSelectionTimeout(5, TimeUnit.SECONDS))
+                .build();
+        return MongoClients.create(settings);
+    }
+
     @Primary
     @Bean(name = "primaryMongoDatabaseFactory")
-    public MongoDatabaseFactory primaryMongoDatabaseFactory() {
+    public MongoDatabaseFactory primaryMongoDatabaseFactory(MongoClient mongoClient) {
         log.info("Initialisation de la base métier MongoDB: {}", maskUri(primaryUri));
-        return new SimpleMongoClientDatabaseFactory(primaryUri);
+        String databaseName = new ConnectionString(primaryUri).getDatabase();
+        if (databaseName == null || databaseName.isBlank()) {
+            databaseName = "smartfactory";
+        }
+        return new SimpleMongoClientDatabaseFactory(mongoClient, databaseName);
     }
 
     @Primary
@@ -76,25 +90,13 @@ public class MongoConfig {
     }
 
     @Bean(name = "historyMongoDatabaseFactory")
-    public MongoDatabaseFactory historyMongoDatabaseFactory() {
+    public MongoDatabaseFactory historyMongoDatabaseFactory(MongoClient mongoClient) {
         log.info("Initialisation de la base historique dédiée SmartFactoryHistory: {}", maskUri(historyUri));
-        try {
-            MongoClientSettings settings = MongoClientSettings.builder()
-                    .applyConnectionString(new ConnectionString(historyUri))
-                    .applyToSocketSettings(builder -> builder.connectTimeout(5, TimeUnit.SECONDS))
-                    .applyToClusterSettings(builder -> builder.serverSelectionTimeout(5, TimeUnit.SECONDS))
-                    .build();
-            MongoClient client = MongoClients.create(settings);
-            String databaseName = new ConnectionString(historyUri).getDatabase();
-            if (databaseName == null || databaseName.isBlank()) {
-                databaseName = "SmartFactoryHistory";
-            }
-            return new SimpleMongoClientDatabaseFactory(client, databaseName);
-        } catch (Exception ex) {
-            log.warn("Impossible de connecter immédiatement la base historique SmartFactoryHistory: {}. Utilisation de la configuration par défaut.",
-                    ex.getMessage());
-            return new SimpleMongoClientDatabaseFactory(historyUri);
+        String databaseName = new ConnectionString(historyUri).getDatabase();
+        if (databaseName == null || databaseName.isBlank()) {
+            databaseName = "SmartFactoryHistory";
         }
+        return new SimpleMongoClientDatabaseFactory(mongoClient, databaseName);
     }
 
     @Bean(name = "historyMongoTemplate")
@@ -102,6 +104,10 @@ public class MongoConfig {
             @Qualifier("historyMongoDatabaseFactory") MongoDatabaseFactory factory,
             MongoCustomConversions conversions) {
         return new MongoTemplate(factory, createMappingConverter(factory, conversions));
+    }
+
+    public MappingMongoConverter createPublicMappingConverter(MongoDatabaseFactory factory, MongoCustomConversions conversions) {
+        return createMappingConverter(factory, conversions);
     }
 
     private String maskUri(String uri) {

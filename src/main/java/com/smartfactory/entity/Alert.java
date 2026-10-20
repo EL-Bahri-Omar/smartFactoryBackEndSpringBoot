@@ -21,7 +21,11 @@ public class Alert {
 
     private SensorType sensorType;
 
-    private String severity; // WARNING, CRITICAL
+    private String machineCode;
+
+    private String anomalyId;
+
+    private String severity; // INFO, WARNING, HIGH, CRITICAL
 
     private Double value;
 
@@ -30,6 +34,16 @@ public class Alert {
     private String status = "ACTIVE"; // ACTIVE, ACKNOWLEDGED, RESOLVED
 
     private String message;
+
+    private String acknowledgedBy;
+
+    private Instant acknowledgedAt;
+
+    private String resolvedBy;
+
+    private Instant resolvedAt;
+
+    private String comment;
 
     private Instant timestamp;
 
@@ -51,8 +65,79 @@ public class Alert {
         this.status = "ACTIVE";
     }
 
+    public Alert(String machineId, String machineCode, String sensorId, SensorType sensorType, String anomalyId,
+                 String severity, Double value, Double threshold, String message, Instant timestamp) {
+        this.machineId = machineId;
+        this.machineCode = machineCode;
+        this.sensorId = sensorId;
+        this.sensorType = sensorType;
+        this.anomalyId = anomalyId;
+        this.severity = severity;
+        this.value = value;
+        this.threshold = threshold;
+        this.message = message;
+        this.timestamp = timestamp != null ? timestamp : Instant.now();
+        this.status = "ACTIVE";
+    }
+
     public String getId() {
         return id;
+    }
+
+    public String getMachineCode() {
+        return machineCode;
+    }
+
+    public void setMachineCode(String machineCode) {
+        this.machineCode = machineCode;
+    }
+
+    public String getAnomalyId() {
+        return anomalyId;
+    }
+
+    public void setAnomalyId(String anomalyId) {
+        this.anomalyId = anomalyId;
+    }
+
+    public String getAcknowledgedBy() {
+        return acknowledgedBy;
+    }
+
+    public void setAcknowledgedBy(String acknowledgedBy) {
+        this.acknowledgedBy = acknowledgedBy;
+    }
+
+    public Instant getAcknowledgedAt() {
+        return acknowledgedAt;
+    }
+
+    public void setAcknowledgedAt(Instant acknowledgedAt) {
+        this.acknowledgedAt = acknowledgedAt;
+    }
+
+    public String getResolvedBy() {
+        return resolvedBy;
+    }
+
+    public void setResolvedBy(String resolvedBy) {
+        this.resolvedBy = resolvedBy;
+    }
+
+    public Instant getResolvedAt() {
+        return resolvedAt;
+    }
+
+    public void setResolvedAt(Instant resolvedAt) {
+        this.resolvedAt = resolvedAt;
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    public void setComment(String comment) {
+        this.comment = comment;
     }
 
     public void setId(String id) {

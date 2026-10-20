@@ -17,5 +17,25 @@ public interface AlertRepository extends MongoRepository<Alert, String> {
 
     List<Alert> findByStatus(String status);
 
+    Page<Alert> findByStatus(String status, Pageable pageable);
+
+    Page<Alert> findBySeverity(String severity, Pageable pageable);
+
+    Page<Alert> findByMachineIdAndStatus(String machineId, String status, Pageable pageable);
+
+    Page<Alert> findByMachineIdAndSeverity(String machineId, String severity, Pageable pageable);
+
+    Page<Alert> findByMachineIdAndSeverityAndStatus(String machineId, String severity, String status, Pageable pageable);
+
+    java.util.Optional<Alert> findFirstByMachineIdAndSensorTypeAndStatus(String machineId, com.smartfactory.entity.SensorType sensorType, String status);
+
+    java.util.Optional<Alert> findFirstByAnomalyId(String anomalyId);
+
+    long countByStatus(String status);
+
+    long countByMachineIdAndStatus(String machineId, String status);
+
+    long countBySeverityAndStatus(String severity, String status);
+
     void deleteByMachineId(String machineId);
 }

@@ -53,7 +53,11 @@ public enum Permission {
 
     // === ZONES INDUSTRIELLES ===
     ZONE_READ("ZONE_READ", "Consulter les zones de l'usine", "ZONES"),
-    ZONE_WRITE("ZONE_WRITE", "Créer, modifier et supprimer des zones", "ZONES");
+    ZONE_WRITE("ZONE_WRITE", "Créer, modifier et supprimer des zones", "ZONES"),
+
+    // === MAINTENANCE ET INTERVENTIONS ===
+    MAINTENANCE_READ("MAINTENANCE_READ", "Consulter les interventions et l'historique de maintenance", "MAINTENANCE"),
+    MAINTENANCE_WRITE("MAINTENANCE_WRITE", "Créer, assigner, exécuter et clôturer des interventions", "MAINTENANCE");
 
     private final String code;
     private final String description;
