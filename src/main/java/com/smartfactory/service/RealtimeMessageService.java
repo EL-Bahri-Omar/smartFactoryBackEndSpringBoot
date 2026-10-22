@@ -169,4 +169,53 @@ public class RealtimeMessageService {
             log.error("Failed to broadcast machine status for machine {}: {}", machineId, ex.getMessage());
         }
     }
+
+    /**
+     * Broadcasts an in-app notification to the specific recipient via WebSocket.
+     */
+    public void broadcastNotificationToUser(String userId, com.smartfactory.entity.AppNotification notification) {
+        if (!StringUtils.hasText(userId) || notification == null) {
+            return;
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("eventType", "NOTIFICATION");
+        payload.put("id", notification.getId());
+        payload.put("userId", notification.getUserId());
+        payload.put("alertId", notification.getAlertId());
+        payload.put("machineId", notification.getMachineId());
+        payload.put("title", notification.getTitle());
+        payload.put("message", notification.getMessage());
+        payload.put("type", notification.getType());
+        payload.put("read", notification.isRead());
+        payload.put("isRead", notification.isRead());
+        payload.put("createdAt", notification.getCreatedAt() != null ? notification.getCreatedAt().toString() : Instant.now().toString());
+
+        try {
+            messagingTemplate.convertAndSend("/topic/users/" + userId + "/notifications", payload);
+            messagingTemplate.convertAndSend("/topic/notifications/" + userId, payload);
+            log.info("Broadcasted notification [{}] to user [{}]", notification.getId(), userId);
+        } catch (Exception ex) {
+            log.error("Failed to broadcast notification to user {}: {}", userId, ex.getMessage());
+        }
+    }
+
+    /**
+     * Broadcasts unread notification count update to the specific user via WebSocket.
+     */
+    public void broadcastUnreadCountToUser(String userId, long unreadCount) {
+        if (!StringUtils.hasText(userId)) {
+            return;
+        }
+        Map<String, Object> payload = Map.of(
+                "eventType", "UNREAD_COUNT",
+                "userId", userId,
+                "unreadCount", unreadCount,
+                "timestamp", Instant.now().toString()
+        );
+        try {
+            messagingTemplate.convertAndSend("/topic/users/" + userId + "/unread-count", payload);
+        } catch (Exception ex) {
+            log.error("Failed to broadcast unread count to user {}: {}", userId, ex.getMessage());
+        }
+    }
 }

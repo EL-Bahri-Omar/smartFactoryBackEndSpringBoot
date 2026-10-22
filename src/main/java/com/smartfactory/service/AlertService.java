@@ -34,39 +34,191 @@ public class AlertService {
 
     private final AlertRepository alertRepository;
     private final AnomalyRepository anomalyRepository;
+    private final AnomalyService anomalyService;
     private final MachineRepository machineRepository;
     private final NotificationService notificationService;
     private final RealtimeMessageService realtimeMessageService;
 
+    private final java.util.concurrent.ConcurrentHashMap<String, Object> sensorLocks = new java.util.concurrent.ConcurrentHashMap<>();
+
     public AlertService(AlertRepository alertRepository,
                         AnomalyRepository anomalyRepository,
+                        AnomalyService anomalyService,
                         MachineRepository machineRepository,
                         NotificationService notificationService,
                         RealtimeMessageService realtimeMessageService) {
         this.alertRepository = alertRepository;
         this.anomalyRepository = anomalyRepository;
+        this.anomalyService = anomalyService;
         this.machineRepository = machineRepository;
         this.notificationService = notificationService;
         this.realtimeMessageService = realtimeMessageService;
     }
 
     /**
-     * Détermine la criticité industrielle selon les seuils et l'ampleur du dépassement (US38).
+     * Traite intégralement le cycle de vie et les transitions d'état d'un capteur (Règles A, B, C, D, E).
      *
-     * Règles documentées :
-     * 1. CRITICAL : Dépassement d'un seuil critique (criticalMin/criticalMax), température > 80°C, vibration > 4.5 mm/s.
-     * 2. HIGH : Anomalie multi-capteurs corrélée ou dépassement critique persistant.
-     * 3. WARNING : Dépassement d'un seuil d'avertissement (warningMin/warningMax), ou capteur hors-ligne.
-     * 4. INFO : Rétablissement, dérive statistique légère ou notification de routine.
+     * Transitions prises en charge :
+     * - NORMAL -> WARNING : Création d'une alerte unique WARNING et notification (Règle A).
+     * - WARNING -> WARNING : Maintien sans spam ni duplication (Règle C).
+     * - WARNING -> CRITICAL : Transition d'état sur l'alerte active, mise à jour de l'indicateur visuel et notification (Règle B).
+     * - CRITICAL -> CRITICAL : Maintien sans duplication (Règle C).
+     * - CRITICAL/WARNING -> NORMAL : Clôture/résolution automatique de l'alerte active et de l'anomalie (Règle D).
+     * - Isolation stricte par machine et type de capteur (Règle E).
      */
-    public String calculateSeverity(MachineThreshold.EvaluationResult evaluation, double value, Double breachedThreshold) {
-        if (evaluation != null && StringUtils.hasText(evaluation.getSeverity())) {
-            String sev = evaluation.getSeverity().trim().toUpperCase();
-            if (Set.of("CRITICAL", "HIGH", "WARNING", "INFO").contains(sev)) {
-                return sev;
-            }
+    public Optional<Alert> processSensorReadingTransition(
+            Machine machine,
+            Sensor sensor,
+            SensorType sensorType,
+            double value,
+            MachineThreshold.EvaluationResult evaluation,
+            Instant timestamp) {
+
+        String machineId = machine != null ? machine.getId() : (sensor != null ? sensor.getMachineId() : null);
+        if (!StringUtils.hasText(machineId) || sensorType == null) {
+            return Optional.empty();
         }
-        return "WARNING";
+
+        String lockKey = machineId + ":" + sensorType.name();
+        synchronized (sensorLocks.computeIfAbsent(lockKey, k -> new Object())) {
+            Instant effectiveTimestamp = timestamp != null ? timestamp : Instant.now();
+            String machineCode = machine != null ? machine.getCode() : machineId;
+
+            boolean isAlert = evaluation != null && evaluation.isAlertTriggered();
+            Optional<Alert> activeAlertOpt = alertRepository.findFirstByMachineIdAndSensorTypeAndStatusOrderByTimestampDesc(
+                    machineId, sensorType, "ACTIVE"
+            );
+
+            // RÈGLE D : Retour à NORMAL -> Clôturer automatiquement l'alerte active
+            if (!isAlert) {
+                if (activeAlertOpt.isPresent()) {
+                    Alert activeAlert = activeAlertOpt.get();
+                    log.info("Retour à l'état NORMAL pour machine [{}] ({}) -> Clôture automatique de l'alerte active [{}]",
+                            machineCode, sensorType, activeAlert.getId());
+                    resolveAlert(activeAlert.getId(), "SYSTEM", "Retour à la normale automatique de la mesure (valeur: " + value + ")");
+
+                    // Nettoyer les doublons résiduels éventuels
+                    List<Alert> allActives = alertRepository.findByMachineIdAndSensorTypeAndStatus(machineId, sensorType, "ACTIVE");
+                    for (Alert extra : allActives) {
+                        resolveAlert(extra.getId(), "SYSTEM", "Clôture doublon résiduel");
+                    }
+                }
+
+                // Clôturer l'anomalie associée si ouverte
+                anomalyRepository.findFirstByMachineIdAndSensorTypeAndStatusIn(
+                        machineId, sensorType, List.of("OPEN", "ACKNOWLEDGED")
+                ).ifPresent(anomaly -> {
+                    anomaly.setStatus("RESOLVED");
+                    anomaly.setUpdatedAt(Instant.now());
+                    anomalyRepository.save(anomaly);
+                });
+
+                return Optional.empty();
+            }
+
+            // Ici, l'état est WARNING ou CRITICAL (ou HIGH)
+            String effectiveSeverity = evaluation.getSeverity() != null ? evaluation.getSeverity().toUpperCase() : "WARNING";
+            Double threshold = evaluation.getBreachedThreshold();
+            String message = evaluation.getMessage();
+
+            // Enregistrer ou mettre à jour l'anomalie (déduplication)
+            Optional<Anomaly> anomalyOpt = anomalyService.processReadingAnomaly(
+                    machine, sensor, sensorType, value, evaluation, effectiveTimestamp
+            );
+            String anomalyId = anomalyOpt.map(Anomaly::getId).orElse(null);
+
+            // RÈGLE A : Première détection (NORMAL -> WARNING ou NORMAL -> CRITICAL)
+            if (activeAlertOpt.isEmpty()) {
+                Alert newAlert = new Alert(
+                        machineId,
+                        machineCode,
+                        sensor != null ? sensor.getId() : null,
+                        sensorType,
+                        anomalyId,
+                        effectiveSeverity,
+                        value,
+                        threshold,
+                        message,
+                        effectiveTimestamp
+                );
+                Alert savedAlert = alertRepository.save(newAlert);
+                log.warn("Nouvelle alerte active créée [{}] pour machine {} ({}) : {}",
+                        savedAlert.getSeverity(), machineCode, sensorType, message);
+
+                if (anomalyOpt.isPresent()) {
+                    Anomaly anomaly = anomalyOpt.get();
+                    anomaly.setAlertId(savedAlert.getId());
+                    anomalyRepository.save(anomaly);
+                }
+
+                // Diffusion WebSocket temps réel
+                realtimeMessageService.broadcastAlert(savedAlert, machineCode);
+
+                // Notification conforme
+                try {
+                    notificationService.notifyAlert(savedAlert);
+                } catch (Exception ex) {
+                    log.error("Échec non-bloquant de notification pour l'alerte {} : {}", savedAlert.getId(), ex.getMessage());
+                }
+
+                return Optional.of(savedAlert);
+            }
+
+            // Alerte active existante
+            Alert existing = activeAlertOpt.get();
+            String currentSeverity = existing.getSeverity() != null ? existing.getSeverity().toUpperCase() : "WARNING";
+
+            // RÈGLE B : Transition d'état (ex: WARNING -> CRITICAL)
+            if (!currentSeverity.equalsIgnoreCase(effectiveSeverity)) {
+                log.info("Transition d'alerte pour machine {} ({}) : {} -> {}",
+                        machineCode, sensorType, currentSeverity, effectiveSeverity);
+
+                existing.setSeverity(effectiveSeverity);
+                existing.setValue(value);
+                existing.setThreshold(threshold);
+                existing.setMessage(message);
+                existing.setTimestamp(effectiveTimestamp);
+                if (StringUtils.hasText(anomalyId)) {
+                    existing.setAnomalyId(anomalyId);
+                }
+                Alert updated = alertRepository.save(existing);
+
+                // Nettoyer d'éventuels doublons orphelins actifs
+                List<Alert> duplicates = alertRepository.findByMachineIdAndSensorTypeAndStatus(machineId, sensorType, "ACTIVE");
+                for (Alert dup : duplicates) {
+                    if (!dup.getId().equals(updated.getId())) {
+                        resolveAlert(dup.getId(), "SYSTEM", "Clôture doublon de transition");
+                    }
+                }
+
+                // Mettre à jour l'indicateur visuel via WebSocket (retire point WARNING, met point CRITICAL)
+                realtimeMessageService.broadcastAlert(updated, machineCode);
+
+                // Notification pour l'événement de transition
+                try {
+                    notificationService.notifyAlert(updated);
+                } catch (Exception ex) {
+                    log.error("Échec notification transition alerte {} : {}", updated.getId(), ex.getMessage());
+                }
+
+                return Optional.of(updated);
+            }
+
+            // RÈGLE C : Maintien dans le même état (WARNING -> WARNING ou CRITICAL -> CRITICAL)
+            // Mise à jour discrète des mesures sans créer de nouvelle alerte ni notification
+            existing.setValue(value);
+            existing.setThreshold(threshold);
+            existing.setMessage(message);
+            existing.setTimestamp(effectiveTimestamp);
+            if (StringUtils.hasText(anomalyId)) {
+                existing.setAnomalyId(anomalyId);
+            }
+            Alert updated = alertRepository.save(existing);
+            log.debug("Alerte active maintenue [{}] pour machine {} ({}) : valeur actualisée {}",
+                    existing.getId(), machineCode, sensorType, value);
+
+            return Optional.of(updated);
+        }
     }
 
     /**
@@ -82,22 +234,33 @@ public class AlertService {
         String machineId = anomaly.getMachineId();
         String machineCode = machine != null ? machine.getCode() : anomaly.getMachineCode();
 
-        // 1. Déduplication : Vérifier si une alerte ACTIVE avec la même sévérité existe déjà pour ce capteur
-        Optional<Alert> existingOpt = alertRepository.findFirstByMachineIdAndSensorTypeAndStatus(
+        // 1. Déduplication : Vérifier si une alerte ACTIVE existe déjà pour ce capteur
+        Optional<Alert> existingOpt = alertRepository.findFirstByMachineIdAndSensorTypeAndStatusOrderByTimestampDesc(
                 machineId, anomaly.getSensorType(), "ACTIVE"
         );
 
         if (existingOpt.isPresent()) {
             Alert existing = existingOpt.get();
-            if (existing.getSeverity() != null && existing.getSeverity().equalsIgnoreCase(effectiveSeverity)) {
-                existing.setValue(value);
-                existing.setThreshold(threshold);
-                existing.setMessage(message);
-                existing.setAnomalyId(anomaly.getId());
-                Alert updated = alertRepository.save(existing);
-                log.debug("Alerte active existante mise à jour [{}] pour machine {}", updated.getId(), machineCode);
-                return updated;
+            boolean severityChanged = existing.getSeverity() == null || !existing.getSeverity().equalsIgnoreCase(effectiveSeverity);
+
+            existing.setSeverity(effectiveSeverity);
+            existing.setValue(value);
+            existing.setThreshold(threshold);
+            existing.setMessage(message);
+            existing.setAnomalyId(anomaly.getId());
+            Alert updated = alertRepository.save(existing);
+            log.debug("Alerte active existante mise à jour [{}] pour machine {}", updated.getId(), machineCode);
+
+            if (severityChanged) {
+                realtimeMessageService.broadcastAlert(updated, machineCode);
+                try {
+                    notificationService.notifyAlert(updated);
+                } catch (Exception ex) {
+                    log.error("Échec non-bloquant de notification pour transition d'alerte {} : {}", updated.getId(), ex.getMessage());
+                }
             }
+
+            return updated;
         }
 
         // 2. Création d'une nouvelle alerte ACTIVE
@@ -125,7 +288,7 @@ public class AlertService {
         // 3. Diffusion temps réel WebSocket (STOMP)
         realtimeMessageService.broadcastAlert(savedAlert, machineCode);
 
-        // 4. Déclenchement de la notification FCM / in-app si HIGH ou CRITICAL (US40)
+        // 4. Déclenchement de la notification FCM / in-app (US40)
         try {
             notificationService.notifyAlert(savedAlert);
         } catch (Exception ex) {

@@ -52,7 +52,7 @@ class AnomalyAndAlertServiceTest {
         thresholdService = Mockito.mock(MachineThresholdService.class);
 
         anomalyService = new AnomalyService(anomalyRepository, machineRepository);
-        alertService = new AlertService(alertRepository, anomalyRepository, machineRepository, notificationService, realtimeMessageService);
+        alertService = new AlertService(alertRepository, anomalyRepository, anomalyService, machineRepository, notificationService, realtimeMessageService);
         advancedDetectionService = new AdvancedAnomalyDetectionService(readingRepository);
         multiSensorAnalysisService = new MultiSensorAnalysisService(telemetryCacheService);
         anomalyScoreService = new AnomalyScoreService(machineRepository, telemetryCacheService, alertRepository, multiSensorAnalysisService, thresholdService);

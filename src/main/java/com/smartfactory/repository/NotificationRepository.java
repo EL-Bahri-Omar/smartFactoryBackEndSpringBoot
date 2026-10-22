@@ -15,9 +15,21 @@ public interface NotificationRepository extends MongoRepository<AppNotification,
 
     Page<AppNotification> findByUserId(String userId, Pageable pageable);
 
+    List<AppNotification> findByUserIdIn(List<String> userIds);
+
+    Page<AppNotification> findByUserIdIn(List<String> userIds, Pageable pageable);
+
     List<AppNotification> findByUserIdAndIsReadFalse(String userId);
 
+    List<AppNotification> findByUserIdInAndIsReadFalse(List<String> userIds);
+
     long countByUserIdAndIsReadFalse(String userId);
+
+    long countByUserIdInAndIsReadFalse(List<String> userIds);
+
+    boolean existsByUserIdAndAlertIdAndType(String userId, String alertId, String type);
+
+    List<AppNotification> findByUserIdAndAlertId(String userId, String alertId);
 
     void deleteByUserId(String userId);
 }

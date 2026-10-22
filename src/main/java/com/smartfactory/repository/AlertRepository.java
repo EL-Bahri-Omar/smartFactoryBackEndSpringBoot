@@ -29,6 +29,10 @@ public interface AlertRepository extends MongoRepository<Alert, String> {
 
     java.util.Optional<Alert> findFirstByMachineIdAndSensorTypeAndStatus(String machineId, com.smartfactory.entity.SensorType sensorType, String status);
 
+    java.util.Optional<Alert> findFirstByMachineIdAndSensorTypeAndStatusOrderByTimestampDesc(String machineId, com.smartfactory.entity.SensorType sensorType, String status);
+
+    List<Alert> findByMachineIdAndSensorTypeAndStatus(String machineId, com.smartfactory.entity.SensorType sensorType, String status);
+
     java.util.Optional<Alert> findFirstByAnomalyId(String anomalyId);
 
     long countByStatus(String status);

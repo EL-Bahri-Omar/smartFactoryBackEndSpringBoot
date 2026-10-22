@@ -256,27 +256,16 @@ public class SensorReadingService {
             sensorService.save(sensor);
         }
 
-        // 13. Déclenchement d'anomalie et d'alerte avec déduplication (US33, US37, US38, US40)
-        if (evaluation != null && evaluation.isAlertTriggered()) {
-            var anomalyOpt = anomalyService.processReadingAnomaly(
-                    machine,
-                    sensor,
-                    effectiveSensorType,
-                    value,
-                    evaluation,
-                    timestamp
-            );
-            if (anomalyOpt.isPresent()) {
-                alertService.createOrUpdateAlertForAnomaly(
-                        anomalyOpt.get(),
-                        machine,
-                        evaluation.getSeverity(),
-                        value,
-                        evaluation.getBreachedThreshold(),
-                        evaluation.getMessage()
-                );
-            }
-        }
+        // 13. Gestion du cycle de vie des anomalies et transitions d'alertes (US33, US37, US38, US40)
+        // Centralisation des transitions NORMAL -> WARNING -> CRITICAL -> NORMAL
+        alertService.processSensorReadingTransition(
+                machine,
+                sensor,
+                effectiveSensorType,
+                value,
+                evaluation,
+                timestamp
+        );
 
         // 14. Diffusion WebSocket IMMÉDIATE (US25) - Aucun retard de 20s
         realtimeMessageService.broadcastReading(reading, machine.getCode());

@@ -325,9 +325,9 @@ class SensorReadingServiceTest {
         readingService.validateAndProcess(topic, criticalPayload);
 
         alerts = alertRepository.findAll();
-        assertThat(alerts).hasSize(2);
-        assertThat(alerts.get(1).getSeverity()).isEqualTo("CRITICAL");
-        assertThat(alerts.get(1).getValue()).isEqualTo(88.0);
+        assertThat(alerts).hasSize(1);
+        assertThat(alerts.get(0).getSeverity()).isEqualTo("CRITICAL");
+        assertThat(alerts.get(0).getValue()).isEqualTo(88.0);
     }
 
     @Test

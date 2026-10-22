@@ -23,7 +23,6 @@ public enum Role {
                     Permission.SENSOR_READ,
                     Permission.SENSOR_HISTORY_READ,
                     Permission.DASHBOARD_READ,
-                    Permission.ALERT_READ,
                     Permission.ZONE_READ,
                     Permission.GROUP_READ
             )

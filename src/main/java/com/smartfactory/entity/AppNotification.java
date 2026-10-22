@@ -104,11 +104,21 @@ public class AppNotification {
         this.type = type;
     }
 
+    @com.fasterxml.jackson.annotation.JsonProperty("read")
     public boolean isRead() {
         return isRead;
     }
 
     public void setRead(boolean read) {
+        isRead = read;
+    }
+
+    @com.fasterxml.jackson.annotation.JsonProperty("isRead")
+    public boolean getIsRead() {
+        return isRead;
+    }
+
+    public void setIsRead(boolean read) {
         isRead = read;
     }
 

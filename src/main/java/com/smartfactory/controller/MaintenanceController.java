@@ -38,24 +38,41 @@ public class MaintenanceController {
     }
 
     /**
-     * Crée une intervention de maintenance (US42).
+     * Crée une intervention de maintenance (US42, Section 6.1).
+     * Autorisé uniquement pour RESPONSABLE_INDUSTRIEL (et ADMIN).
      */
     @PostMapping
-    @PreAuthorize("hasAnyAuthority('MAINTENANCE_WRITE', 'MAINTENANCE:AJOUTER', 'TECHNICIAN', 'RESPONSABLE_INDUSTRIEL', 'ROLE_ADMIN')")
+    @PreAuthorize("hasAnyRole('RESPONSABLE_INDUSTRIEL', 'ADMIN') or (hasAuthority('MAINTENANCE_WRITE') and !hasRole('TECHNICIAN') and !hasRole('OPERATOR'))")
     public ResponseEntity<MaintenanceIntervention> createIntervention(
             @Valid @RequestBody InterventionCreateRequest request,
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
         String username = currentUser != null ? currentUser.getUsername() : "ANONYMOUS";
-        MaintenanceIntervention created = interventionService.createIntervention(request, username);
+        MaintenanceIntervention created = interventionService.createIntervention(request, username, currentUser);
         return new ResponseEntity<>(created, HttpStatus.CREATED);
     }
 
     /**
-     * Consulte l'historique complet des interventions avec filtres et pagination (US49).
+     * Modifie les paramètres de planification d'une intervention (Section 6.1).
+     * Réservé au RESPONSABLE_INDUSTRIEL (et ADMIN).
+     */
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('RESPONSABLE_INDUSTRIEL', 'ADMIN') or (hasAuthority('MAINTENANCE_WRITE') and !hasRole('TECHNICIAN') and !hasRole('OPERATOR'))")
+    public ResponseEntity<MaintenanceIntervention> updateIntervention(
+            @PathVariable String id,
+            @Valid @RequestBody InterventionUpdateRequest request,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
+
+        String updatedBy = currentUser != null ? currentUser.getUsername() : "ANONYMOUS";
+        MaintenanceIntervention updated = interventionService.updateIntervention(id, request, updatedBy, currentUser);
+        return ResponseEntity.ok(updated);
+    }
+
+    /**
+     * Consulte l'historique complet des interventions avec filtres et pagination (US49, Section 6.3).
      */
     @GetMapping
-    @PreAuthorize("hasAnyAuthority('MAINTENANCE_READ', 'MAINTENANCE:CONSULTER', 'TECHNICIAN', 'RESPONSABLE_INDUSTRIEL', 'ROLE_ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'RESPONSABLE_INDUSTRIEL', 'TECHNICIAN') or (hasAuthority('MAINTENANCE_READ') and !hasRole('OPERATOR'))")
     public ResponseEntity<Page<MaintenanceIntervention>> getInterventions(
             @RequestParam(required = false) String machineId,
             @RequestParam(required = false) String technicianId,
@@ -66,7 +83,8 @@ public class MaintenanceController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) Instant to,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
-            @RequestParam(defaultValue = "createdAt,desc") String[] sort) {
+            @RequestParam(defaultValue = "createdAt,desc") String[] sort,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
 
         Sort sortOrder = Sort.by(Sort.Direction.DESC, "createdAt");
         if (sort != null && sort.length > 0) {
@@ -77,25 +95,27 @@ public class MaintenanceController {
 
         Pageable pageable = PageRequest.of(page, size, sortOrder);
         Page<MaintenanceIntervention> result = interventionService.getInterventions(
-                machineId, technicianId, type, subtype, status, from, to, pageable
+                machineId, technicianId, type, subtype, status, from, to, pageable, currentUser
         );
         return ResponseEntity.ok(result);
     }
 
     /**
-     * Consulte le détail d'une intervention.
+     * Consulte le détail d'une intervention (Section 6.3).
      */
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('MAINTENANCE_READ', 'MAINTENANCE:CONSULTER', 'TECHNICIAN', 'RESPONSABLE_INDUSTRIEL', 'ROLE_ADMIN')")
-    public ResponseEntity<MaintenanceIntervention> getInterventionById(@PathVariable String id) {
-        return ResponseEntity.ok(interventionService.getInterventionById(id));
+    @PreAuthorize("hasAnyRole('ADMIN', 'RESPONSABLE_INDUSTRIEL', 'TECHNICIAN') or (hasAuthority('MAINTENANCE_READ') and !hasRole('OPERATOR'))")
+    public ResponseEntity<MaintenanceIntervention> getInterventionById(
+            @PathVariable String id,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
+        return ResponseEntity.ok(interventionService.getInterventionById(id, currentUser));
     }
 
     /**
-     * Assigne un technicien à une intervention (US43).
+     * Assigne un technicien à une intervention (US43, Section 6.1).
      */
     @PutMapping("/{id}/assign")
-    @PreAuthorize("hasAnyAuthority('MAINTENANCE_WRITE', 'MAINTENANCE:MODIFIER', 'RESPONSABLE_INDUSTRIEL', 'ROLE_ADMIN')")
+    @PreAuthorize("hasAnyRole('RESPONSABLE_INDUSTRIEL', 'ADMIN') or (hasAuthority('MAINTENANCE_WRITE') and !hasRole('TECHNICIAN') and !hasRole('OPERATOR'))")
     public ResponseEntity<MaintenanceIntervention> assignTechnician(
             @PathVariable String id,
             @Valid @RequestBody InterventionAssignRequest request,
@@ -107,74 +127,76 @@ public class MaintenanceController {
     }
 
     /**
-     * Consulte l'anomalie et les mesures contextuelles associées à l'intervention (US44).
+     * Consulte l'anomalie et les mesures contextuelles associées à l'intervention (US44, Section 6.3).
      */
     @GetMapping("/{id}/anomaly")
-    @PreAuthorize("hasAnyAuthority('MAINTENANCE_READ', 'MAINTENANCE:CONSULTER', 'TECHNICIAN', 'RESPONSABLE_INDUSTRIEL', 'ROLE_ADMIN')")
-    public ResponseEntity<Map<String, Object>> getAnomalyContext(@PathVariable String id) {
-        return ResponseEntity.ok(interventionService.getAnomalyContext(id));
+    @PreAuthorize("hasAnyRole('ADMIN', 'RESPONSABLE_INDUSTRIEL', 'TECHNICIAN') or (hasAuthority('MAINTENANCE_READ') and !hasRole('OPERATOR'))")
+    public ResponseEntity<Map<String, Object>> getAnomalyContext(
+            @PathVariable String id,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
+        return ResponseEntity.ok(interventionService.getAnomalyContext(id, currentUser));
     }
 
     /**
-     * Enregistre un diagnostic technique (US45).
+     * Enregistre un diagnostic technique (US45, Section 6.2).
      */
     @PostMapping("/{id}/diagnoses")
-    @PreAuthorize("hasAnyAuthority('MAINTENANCE_WRITE', 'MAINTENANCE:MODIFIER', 'TECHNICIAN', 'ROLE_ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'TECHNICIAN', 'RESPONSABLE_INDUSTRIEL')")
     public ResponseEntity<MaintenanceIntervention> addDiagnosis(
             @PathVariable String id,
             @Valid @RequestBody DiagnosisCreateRequest request,
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
-        String techId = currentUser != null ? currentUser.getUsername() : "ANONYMOUS";
+        String techId = currentUser != null && currentUser.getId() != null ? currentUser.getId() : (currentUser != null ? currentUser.getUsername() : "ANONYMOUS");
         String techName = currentUser != null ? currentUser.getUsername() : "Technicien";
-        MaintenanceIntervention updated = interventionService.addDiagnosis(id, request, techId, techName);
+        MaintenanceIntervention updated = interventionService.addDiagnosis(id, request, techId, techName, currentUser);
         return ResponseEntity.ok(updated);
     }
 
     /**
-     * Enregistre une action de maintenance réalisée (US46).
+     * Enregistre une action de maintenance réalisée (US46, Section 6.2).
      */
     @PostMapping("/{id}/actions")
-    @PreAuthorize("hasAnyAuthority('MAINTENANCE_WRITE', 'MAINTENANCE:MODIFIER', 'TECHNICIAN', 'ROLE_ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'TECHNICIAN', 'RESPONSABLE_INDUSTRIEL')")
     public ResponseEntity<MaintenanceIntervention> addAction(
             @PathVariable String id,
             @Valid @RequestBody ActionCreateRequest request,
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
-        String techId = currentUser != null ? currentUser.getUsername() : "ANONYMOUS";
+        String techId = currentUser != null && currentUser.getId() != null ? currentUser.getId() : (currentUser != null ? currentUser.getUsername() : "ANONYMOUS");
         String techName = currentUser != null ? currentUser.getUsername() : "Technicien";
-        MaintenanceIntervention updated = interventionService.addAction(id, request, techId, techName);
+        MaintenanceIntervention updated = interventionService.addAction(id, request, techId, techName, currentUser);
         return ResponseEntity.ok(updated);
     }
 
     /**
-     * Ajoute une observation technique (US47).
+     * Ajoute une observation technique (US47, Section 6.2).
      */
     @PostMapping("/{id}/observations")
-    @PreAuthorize("hasAnyAuthority('MAINTENANCE_WRITE', 'MAINTENANCE:MODIFIER', 'TECHNICIAN', 'RESPONSABLE_INDUSTRIEL', 'ROLE_ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'TECHNICIAN', 'RESPONSABLE_INDUSTRIEL')")
     public ResponseEntity<MaintenanceIntervention> addObservation(
             @PathVariable String id,
             @Valid @RequestBody ObservationCreateRequest request,
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
-        String authorId = currentUser != null ? currentUser.getUsername() : "ANONYMOUS";
+        String authorId = currentUser != null && currentUser.getId() != null ? currentUser.getId() : (currentUser != null ? currentUser.getUsername() : "ANONYMOUS");
         String authorName = currentUser != null ? currentUser.getUsername() : "Auteur";
-        MaintenanceIntervention updated = interventionService.addObservation(id, request, authorId, authorName);
+        MaintenanceIntervention updated = interventionService.addObservation(id, request, authorId, authorName, currentUser);
         return ResponseEntity.ok(updated);
     }
 
     /**
-     * Clôture définitive d'une intervention (US48).
+     * Clôture définitive d'une intervention (US48, Section 6.2).
      */
     @PutMapping("/{id}/close")
-    @PreAuthorize("hasAnyAuthority('MAINTENANCE_WRITE', 'MAINTENANCE:MODIFIER', 'TECHNICIAN', 'RESPONSABLE_INDUSTRIEL', 'ROLE_ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'TECHNICIAN', 'RESPONSABLE_INDUSTRIEL')")
     public ResponseEntity<MaintenanceIntervention> closeIntervention(
             @PathVariable String id,
             @Valid @RequestBody InterventionCloseRequest request,
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
         String closedBy = currentUser != null ? currentUser.getUsername() : "ANONYMOUS";
-        MaintenanceIntervention closed = interventionService.closeIntervention(id, request, closedBy);
+        MaintenanceIntervention closed = interventionService.closeIntervention(id, request, closedBy, currentUser);
         return ResponseEntity.ok(closed);
     }
 
@@ -182,7 +204,7 @@ public class MaintenanceController {
      * Formule des recommandations d'interventions basées sur les données machines (US50).
      */
     @GetMapping("/recommendations/{machineId}")
-    @PreAuthorize("hasAnyAuthority('MAINTENANCE_READ', 'MAINTENANCE:CONSULTER', 'TECHNICIAN', 'RESPONSABLE_INDUSTRIEL', 'ROLE_ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'RESPONSABLE_INDUSTRIEL', 'TECHNICIAN') or (hasAuthority('MAINTENANCE_READ') and !hasRole('OPERATOR'))")
     public ResponseEntity<List<MaintenanceRecommendationService.Recommendation>> getRecommendations(
             @PathVariable String machineId) {
 
@@ -191,10 +213,10 @@ public class MaintenanceController {
     }
 
     /**
-     * Convertit et applique une recommandation en intervention de maintenance réelle (US50).
+     * Convertit et applique une recommandation en intervention de maintenance réelle (US50, Section 6.1).
      */
     @PostMapping("/recommendations/{machineId}/apply")
-    @PreAuthorize("hasAnyAuthority('MAINTENANCE_WRITE', 'MAINTENANCE:AJOUTER', 'TECHNICIAN', 'RESPONSABLE_INDUSTRIEL', 'ROLE_ADMIN')")
+    @PreAuthorize("hasAnyRole('RESPONSABLE_INDUSTRIEL', 'ADMIN') or (hasAuthority('MAINTENANCE_WRITE') and !hasRole('TECHNICIAN') and !hasRole('OPERATOR'))")
     public ResponseEntity<MaintenanceIntervention> applyRecommendation(
             @PathVariable String machineId,
             @RequestParam(defaultValue = "0") int index,

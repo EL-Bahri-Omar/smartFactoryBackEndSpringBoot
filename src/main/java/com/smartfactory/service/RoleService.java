@@ -247,7 +247,19 @@ public class RoleService {
                 rolePrivilegesCache.put(roleName, defaultPrivs);
                 log.info("Rôle système initialisé: [{}] avec {} privilèges par défaut", roleName, defaultPrivs.size());
             } else {
-                rolePrivilegesCache.put(roleName, existing.get().getPrivileges());
+                RoleDocument doc = existing.get();
+                if (role == Role.OPERATOR && doc.isSystemRole()) {
+                    Set<String> currentPrivs = new HashSet<>(doc.getPrivileges());
+                    boolean removed = currentPrivs.removeIf(p -> "ALERT_READ".equalsIgnoreCase(p) || "ALERT:CONSULTER".equalsIgnoreCase(p));
+                    if (removed) {
+                        doc.setPrivileges(currentPrivs);
+                        roleRepository.save(doc);
+                        log.info("Rôle système OPERATOR assaini : suppression des privilèges d'alerte");
+                    }
+                    rolePrivilegesCache.put(roleName, currentPrivs);
+                } else {
+                    rolePrivilegesCache.put(roleName, doc.getPrivileges());
+                }
             }
         }
     }

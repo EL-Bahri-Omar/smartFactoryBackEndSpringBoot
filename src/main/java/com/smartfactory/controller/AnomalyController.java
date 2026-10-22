@@ -41,10 +41,11 @@ public class AnomalyController {
     }
 
     /**
-     * Consultation paginée des anomalies (US33).
+     * Consultation paginée des anomalies (US33, Section 8).
+     * STRICTEMENT INTERDIT à l'OPERATOR.
      */
     @GetMapping
-    @PreAuthorize("hasAnyAuthority('ALERT_READ', 'ALERT:CONSULTER', 'MACHINE_READ')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'RESPONSABLE_INDUSTRIEL', 'TECHNICIAN') or (hasAuthority('ALERT_READ') and !hasRole('OPERATOR'))")
     public ResponseEntity<Page<Anomaly>> getAnomalies(
             @RequestParam(required = false) String machineId,
             @RequestParam(required = false) String status,
@@ -59,10 +60,11 @@ public class AnomalyController {
     }
 
     /**
-     * Consultation du détail d'une anomalie par son ID (US44).
+     * Consultation du détail d'une anomalie par son ID (US44, Section 8).
+     * STRICTEMENT INTERDIT à l'OPERATOR.
      */
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('ALERT_READ', 'ALERT:CONSULTER', 'MACHINE_READ')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'RESPONSABLE_INDUSTRIEL', 'TECHNICIAN') or (hasAuthority('ALERT_READ') and !hasRole('OPERATOR'))")
     public ResponseEntity<Anomaly> getAnomalyById(@PathVariable String id) {
         return ResponseEntity.ok(anomalyService.getAnomalyById(id));
     }

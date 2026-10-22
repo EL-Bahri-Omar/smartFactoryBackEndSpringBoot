@@ -30,11 +30,12 @@ public class AlertController {
     }
 
     /**
-     * Consultation paginée des alertes avec filtres (US39).
-     * Accessible aux rôles OPERATOR, TECHNICIAN, RESPONSABLE_INDUSTRIEL, ADMIN.
+     * Consultation paginée des alertes avec filtres (US39, Section 8).
+     * Accessible aux rôles ADMIN, RESPONSABLE_INDUSTRIEL, TECHNICIAN.
+     * STRICTEMENT INTERDIT à l'OPERATOR (Section 8).
      */
     @GetMapping
-    @PreAuthorize("hasAnyAuthority('ALERT_READ', 'ALERT:CONSULTER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'RESPONSABLE_INDUSTRIEL', 'TECHNICIAN') or (hasAuthority('ALERT_READ') and !hasRole('OPERATOR'))")
     public ResponseEntity<Page<Alert>> getAlerts(
             @RequestParam(required = false) String machineId,
             @RequestParam(required = false) String severity,
@@ -59,33 +60,36 @@ public class AlertController {
 
     /**
      * Consultation d'une alerte par son identifiant.
+     * STRICTEMENT INTERDIT à l'OPERATOR (Section 8).
      */
     @GetMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('ALERT_READ', 'ALERT:CONSULTER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'RESPONSABLE_INDUSTRIEL', 'TECHNICIAN') or (hasAuthority('ALERT_READ') and !hasRole('OPERATOR'))")
     public ResponseEntity<Alert> getAlertById(@PathVariable String id) {
         return ResponseEntity.ok(alertService.getAlertById(id));
     }
 
     /**
      * Résumé quantitatif des alertes pour le tableau de bord de supervision.
+     * STRICTEMENT INTERDIT à l'OPERATOR (Section 8).
      */
     @GetMapping("/summary")
-    @PreAuthorize("hasAnyAuthority('ALERT_READ', 'ALERT:CONSULTER')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'RESPONSABLE_INDUSTRIEL', 'TECHNICIAN') or (hasAuthority('ALERT_READ') and !hasRole('OPERATOR'))")
     public ResponseEntity<Map<String, Object>> getAlertSummary() {
         return ResponseEntity.ok(alertService.getAlertSummary());
     }
 
     /**
-     * Acquittement formel d'une alerte par un technicien ou responsable (US41).
+     * Acquittement formel d'une alerte par un technicien ou responsable (US41, Section 5).
+     * Accepte POST et PUT sur /{id}/acknowledge ainsi que /{id}/read.
      */
-    @PostMapping("/{id}/acknowledge")
-    @PreAuthorize("hasAnyAuthority('ALERT_WRITE', 'ALERT:ACQUITTER', 'ALERT:MODIFIER')")
+    @RequestMapping(value = {"/{id}/acknowledge", "/{id}/read"}, method = {RequestMethod.POST, RequestMethod.PUT})
+    @PreAuthorize("hasAnyRole('ADMIN', 'RESPONSABLE_INDUSTRIEL', 'TECHNICIAN') or hasAnyAuthority('ALERT_WRITE', 'ALERT:ACQUITTER', 'ALERT:MODIFIER')")
     public ResponseEntity<Alert> acknowledgeAlert(
             @PathVariable String id,
             @RequestBody(required = false) Map<String, String> requestBody,
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
-        String userId = currentUser != null ? currentUser.getUsername() : "ANONYMOUS";
+        String userId = currentUser != null ? (currentUser.getId() != null ? currentUser.getId() : currentUser.getUsername()) : "ANONYMOUS";
         String comment = requestBody != null ? requestBody.get("comment") : null;
 
         Alert acknowledged = alertService.acknowledgeAlert(id, userId, comment);
@@ -95,14 +99,14 @@ public class AlertController {
     /**
      * Résolution d'une alerte après intervention.
      */
-    @PostMapping("/{id}/resolve")
-    @PreAuthorize("hasAnyAuthority('ALERT_WRITE', 'ALERT:MODIFIER')")
+    @RequestMapping(value = "/{id}/resolve", method = {RequestMethod.POST, RequestMethod.PUT})
+    @PreAuthorize("hasAnyRole('ADMIN', 'RESPONSABLE_INDUSTRIEL', 'TECHNICIAN') or hasAnyAuthority('ALERT_WRITE', 'ALERT:MODIFIER')")
     public ResponseEntity<Alert> resolveAlert(
             @PathVariable String id,
             @RequestBody(required = false) Map<String, String> requestBody,
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
-        String userId = currentUser != null ? currentUser.getUsername() : "ANONYMOUS";
+        String userId = currentUser != null ? (currentUser.getId() != null ? currentUser.getId() : currentUser.getUsername()) : "ANONYMOUS";
         String comment = requestBody != null ? requestBody.get("comment") : null;
 
         Alert resolved = alertService.resolveAlert(id, userId, comment);
