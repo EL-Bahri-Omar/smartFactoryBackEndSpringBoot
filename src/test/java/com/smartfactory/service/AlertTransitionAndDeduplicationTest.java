@@ -95,7 +95,7 @@ class AlertTransitionAndDeduplicationTest {
     }
 
     private String buildPayload(String machineCode, String sensorType, double value, String unit) {
-        return String.format("""
+        return String.format(java.util.Locale.US, """
                 {
                   "machineId": "%s",
                   "sensorType": "%s",

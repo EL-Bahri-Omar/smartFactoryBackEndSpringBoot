@@ -94,7 +94,7 @@ class MaintenanceRbacSecurityTest {
         request.setDescription("Maintenance préventive systématique");
         request.setType(MaintenanceType.PREVENTIVE);
         request.setPreventiveSubtype(PreventiveSubtype.SYSTEMATIC);
-        request.setPriority(InterventionPriority.NORMAL);
+        request.setPriority(InterventionPriority.MEDIUM);
 
         // 1. TECHNICIEN tente de créer -> 403 Forbidden
         mockMvc.perform(post("/api/maintenance")
@@ -128,7 +128,7 @@ class MaintenanceRbacSecurityTest {
                 MaintenanceType.CORRECTIVE, null, InterventionPriority.HIGH
         );
         inter.setTechnicianId(tech1.getId());
-        inter.setTechnicianName(tech1.getNomComplet());
+        inter.setTechnicianName(tech1.getFirstName() + " " + tech1.getLastName());
         inter = interventionRepository.save(inter);
 
         // 1. Tech 1 tente de modifier les paramètres généraux (PUT /api/maintenance/{id}) -> 403 Forbidden
@@ -179,7 +179,7 @@ class MaintenanceRbacSecurityTest {
                 MaintenanceType.CORRECTIVE, null, InterventionPriority.HIGH
         );
         inter.setTechnicianId(tech1.getId());
-        inter.setTechnicianName(tech1.getNomComplet());
+        inter.setTechnicianName(tech1.getFirstName() + " " + tech1.getLastName());
         inter = interventionRepository.save(inter);
 
         // 1. Tech 2 (non assigné) tente d'ajouter un diagnostic -> 403 Forbidden
@@ -246,7 +246,7 @@ class MaintenanceRbacSecurityTest {
         // Inter 2 assignée à Tech 2
         MaintenanceIntervention inter2 = new MaintenanceIntervention(
                 machine.getId(), machine.getCode(), "Intervention Tech 2", "Desc 2",
-                MaintenanceType.CORRECTIVE, null, InterventionPriority.NORMAL
+                MaintenanceType.CORRECTIVE, null, InterventionPriority.MEDIUM
         );
         inter2.setTechnicianId(tech2.getId());
         inter2 = interventionRepository.save(inter2);

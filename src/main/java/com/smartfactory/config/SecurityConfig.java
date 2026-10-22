@@ -111,16 +111,16 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/history/**").hasAuthority("ROLE_ADMIN")
 
                         // Alerts & Anomalies (Sprint 5 & Section 7: OPERATOR forbidden)
-                        .requestMatchers(HttpMethod.GET, "/api/alerts/**", "/api/anomalies/**").hasAnyAuthority("ROLE_ADMIN", "ALERT_READ", "ALERT:CONSULTER", "TECHNICIAN", "RESPONSABLE_INDUSTRIEL")
-                        .requestMatchers(HttpMethod.POST, "/api/alerts/**").hasAnyAuthority("ROLE_ADMIN", "ALERT_WRITE", "ALERT:ACQUITTER", "ALERT:MODIFIER", "TECHNICIAN", "RESPONSABLE_INDUSTRIEL")
-                        .requestMatchers(HttpMethod.PUT, "/api/alerts/**", "/api/anomalies/**").hasAnyAuthority("ROLE_ADMIN", "ALERT_ACKNOWLEDGE", "ALERT_WRITE", "ALERT:MODIFIER", "TECHNICIAN", "RESPONSABLE_INDUSTRIEL")
+                        .requestMatchers(HttpMethod.GET, "/api/alerts/**", "/api/anomalies/**").hasAnyAuthority("ROLE_ADMIN", "ADMIN", "ALERT_READ", "ALERT:CONSULTER", "ROLE_TECHNICIAN", "TECHNICIAN", "ROLE_RESPONSABLE_INDUSTRIEL", "RESPONSABLE_INDUSTRIEL")
+                        .requestMatchers(HttpMethod.POST, "/api/alerts/**").hasAnyAuthority("ROLE_ADMIN", "ADMIN", "ALERT_WRITE", "ALERT:ACQUITTER", "ALERT:MODIFIER", "ROLE_TECHNICIAN", "TECHNICIAN", "ROLE_RESPONSABLE_INDUSTRIEL", "RESPONSABLE_INDUSTRIEL")
+                        .requestMatchers(HttpMethod.PUT, "/api/alerts/**", "/api/anomalies/**").hasAnyAuthority("ROLE_ADMIN", "ADMIN", "ALERT_ACKNOWLEDGE", "ALERT_WRITE", "ALERT:MODIFIER", "ROLE_TECHNICIAN", "TECHNICIAN", "ROLE_RESPONSABLE_INDUSTRIEL", "RESPONSABLE_INDUSTRIEL")
 
                         // Maintenance & Interventions (Sprint 6 & Section 6)
-                        .requestMatchers(HttpMethod.POST, "/api/maintenance/*/diagnoses", "/api/maintenance/*/actions", "/api/maintenance/*/observations").hasAnyAuthority("ROLE_ADMIN", "MAINTENANCE_WRITE", "TECHNICIAN", "RESPONSABLE_INDUSTRIEL")
-                        .requestMatchers(HttpMethod.PUT, "/api/maintenance/*/close").hasAnyAuthority("ROLE_ADMIN", "MAINTENANCE_WRITE", "TECHNICIAN", "RESPONSABLE_INDUSTRIEL")
-                        .requestMatchers(HttpMethod.POST, "/api/maintenance", "/api/maintenance/", "/api/maintenance/recommendations/**").hasAnyAuthority("ROLE_ADMIN", "RESPONSABLE_INDUSTRIEL")
-                        .requestMatchers(HttpMethod.PUT, "/api/maintenance/*", "/api/maintenance/*/assign").hasAnyAuthority("ROLE_ADMIN", "RESPONSABLE_INDUSTRIEL")
-                        .requestMatchers(HttpMethod.GET, "/api/maintenance/**").hasAnyAuthority("ROLE_ADMIN", "MAINTENANCE_READ", "TECHNICIAN", "RESPONSABLE_INDUSTRIEL")
+                        .requestMatchers(HttpMethod.POST, "/api/maintenance/*/diagnoses", "/api/maintenance/*/actions", "/api/maintenance/*/observations").hasAnyAuthority("ROLE_ADMIN", "ADMIN", "MAINTENANCE_WRITE", "ROLE_TECHNICIAN", "TECHNICIAN", "ROLE_RESPONSABLE_INDUSTRIEL", "RESPONSABLE_INDUSTRIEL")
+                        .requestMatchers(HttpMethod.PUT, "/api/maintenance/*/close").hasAnyAuthority("ROLE_ADMIN", "ADMIN", "MAINTENANCE_WRITE", "ROLE_TECHNICIAN", "TECHNICIAN", "ROLE_RESPONSABLE_INDUSTRIEL", "RESPONSABLE_INDUSTRIEL")
+                        .requestMatchers(HttpMethod.POST, "/api/maintenance", "/api/maintenance/", "/api/maintenance/recommendations/**").hasAnyAuthority("ROLE_ADMIN", "ADMIN", "ROLE_RESPONSABLE_INDUSTRIEL", "RESPONSABLE_INDUSTRIEL")
+                        .requestMatchers(HttpMethod.PUT, "/api/maintenance/*", "/api/maintenance/*/assign").hasAnyAuthority("ROLE_ADMIN", "ADMIN", "ROLE_RESPONSABLE_INDUSTRIEL", "RESPONSABLE_INDUSTRIEL")
+                        .requestMatchers(HttpMethod.GET, "/api/maintenance/**").hasAnyAuthority("ROLE_ADMIN", "ADMIN", "MAINTENANCE_READ", "ROLE_TECHNICIAN", "TECHNICIAN", "ROLE_RESPONSABLE_INDUSTRIEL", "RESPONSABLE_INDUSTRIEL")
 
                         // Notifications & device tokens
                         .requestMatchers("/api/notifications/**").authenticated()

@@ -40,6 +40,7 @@ public class UserPrincipal implements UserDetails {
         String effectiveRoleName = user.getEffectiveRoleName();
         if (effectiveRoleName != null && !effectiveRoleName.trim().isEmpty()) {
             authorities.add(new SimpleGrantedAuthority("ROLE_" + effectiveRoleName.trim().toUpperCase()));
+            authorities.add(new SimpleGrantedAuthority(effectiveRoleName.trim().toUpperCase()));
         }
 
         Set<Permission> effectivePermissions = new HashSet<>();
