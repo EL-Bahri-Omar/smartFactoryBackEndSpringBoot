@@ -204,7 +204,7 @@ public class RoleService {
             return cached;
         }
 
-        Optional<RoleDocument> docOpt = roleRepository.findByNameIgnoreCase(normalized);
+        Optional<RoleDocument> docOpt = roleRepository.findFirstByNameIgnoreCase(normalized);
         if (docOpt.isPresent()) {
             Set<String> privs = docOpt.get().getPrivileges();
             rolePrivilegesCache.put(normalized, privs);
@@ -226,17 +226,18 @@ public class RoleService {
 
     /**
      * Initialisation idempotente des rôles système par défaut dans la base MongoDB.
+     * Détecte et nettoie automatiquement les doublons éventuels en base.
      */
     public void initializeDefaultRoles() {
         for (Role role : Role.values()) {
             String roleName = role.name();
-            Optional<RoleDocument> existing = roleRepository.findByNameIgnoreCase(roleName);
+            List<RoleDocument> existingList = roleRepository.findAllByNameIgnoreCase(roleName);
 
             Set<String> defaultPrivs = role.getDefaultPermissions().stream()
                     .map(Permission::name)
                     .collect(Collectors.toSet());
 
-            if (existing.isEmpty()) {
+            if (existingList.isEmpty()) {
                 RoleDocument doc = new RoleDocument(
                         roleName,
                         role.getLabel(),
@@ -247,7 +248,16 @@ public class RoleService {
                 rolePrivilegesCache.put(roleName, defaultPrivs);
                 log.info("Rôle système initialisé: [{}] avec {} privilèges par défaut", roleName, defaultPrivs.size());
             } else {
-                RoleDocument doc = existing.get();
+                RoleDocument doc = existingList.get(0);
+
+                // Si des doublons existent pour ce rôle dans MongoDB, purge automatique des doublons
+                if (existingList.size() > 1) {
+                    log.warn("Doublons détectés pour le rôle [{}] : {} documents trouvés. Suppression automatique des doublons...", roleName, existingList.size());
+                    for (int i = 1; i < existingList.size(); i++) {
+                        roleRepository.delete(existingList.get(i));
+                    }
+                }
+
                 if (role == Role.OPERATOR && doc.isSystemRole()) {
                     Set<String> currentPrivs = new HashSet<>(doc.getPrivileges());
                     boolean removed = currentPrivs.removeIf(p -> "ALERT_READ".equalsIgnoreCase(p) || "ALERT:CONSULTER".equalsIgnoreCase(p));
@@ -273,7 +283,7 @@ public class RoleService {
         if (byId.isPresent()) {
             return byId.get();
         }
-        Optional<RoleDocument> byName = roleRepository.findByNameIgnoreCase(query);
+        Optional<RoleDocument> byName = roleRepository.findFirstByNameIgnoreCase(query);
         if (byName.isPresent()) {
             return byName.get();
         }

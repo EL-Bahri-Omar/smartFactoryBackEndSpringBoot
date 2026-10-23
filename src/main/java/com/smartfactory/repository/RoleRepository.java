@@ -13,5 +13,9 @@ public interface RoleRepository extends MongoRepository<RoleDocument, String> {
 
     Optional<RoleDocument> findByNameIgnoreCase(String name);
 
+    Optional<RoleDocument> findFirstByNameIgnoreCase(String name);
+
+    java.util.List<RoleDocument> findAllByNameIgnoreCase(String name);
+
     boolean existsByNameIgnoreCase(String name);
 }
