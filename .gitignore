@@ -31,3 +31,12 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Firebase & Cloud Credentials ###
+*firebase-adminsdk*.json
+firebase-service-account*.json
+smartfactory-production-firebase-adminsdk*.json
+google-services.json
+GoogleService-Info.plist
+*.p8
+*.p12

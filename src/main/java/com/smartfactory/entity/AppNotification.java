@@ -19,7 +19,11 @@ public class AppNotification {
     @Indexed
     private String userId;
 
+    @Indexed
     private String alertId;
+
+    @Indexed
+    private String interventionId;
 
     private String machineId;
 
@@ -27,9 +31,11 @@ public class AppNotification {
 
     private String message;
 
-    private String type; // ALERT_CRITICAL, ALERT_HIGH, MAINTENANCE_ASSIGNED, INFO
+    private String type; // ALERT_CRITICAL, ALERT_WARNING, MAINTENANCE_ASSIGNED, MAINTENANCE_UPDATED, MAINTENANCE_COMPLETED, GROUP_MEMBER_ADDED, GROUP_MEMBER_REMOVED, INFO
 
     private boolean isRead = false;
+
+    private java.util.Map<String, Object> data = new java.util.HashMap<>();
 
     @CreatedDate
     private Instant createdAt;
@@ -45,6 +51,19 @@ public class AppNotification {
         this.message = message;
         this.type = type != null ? type : "INFO";
         this.isRead = false;
+        this.createdAt = Instant.now();
+    }
+
+    public AppNotification(String userId, String alertId, String interventionId, String machineId, String title, String message, String type, java.util.Map<String, Object> data) {
+        this.userId = userId;
+        this.alertId = alertId;
+        this.interventionId = interventionId;
+        this.machineId = machineId;
+        this.title = title;
+        this.message = message;
+        this.type = type != null ? type : "INFO";
+        this.isRead = false;
+        this.data = data != null ? new java.util.HashMap<>(data) : new java.util.HashMap<>();
         this.createdAt = Instant.now();
     }
 
@@ -70,6 +89,22 @@ public class AppNotification {
 
     public void setAlertId(String alertId) {
         this.alertId = alertId;
+    }
+
+    public String getInterventionId() {
+        return interventionId;
+    }
+
+    public void setInterventionId(String interventionId) {
+        this.interventionId = interventionId;
+    }
+
+    public java.util.Map<String, Object> getData() {
+        return data != null ? data : new java.util.HashMap<>();
+    }
+
+    public void setData(java.util.Map<String, Object> data) {
+        this.data = data != null ? new java.util.HashMap<>(data) : new java.util.HashMap<>();
     }
 
     public String getMachineId() {

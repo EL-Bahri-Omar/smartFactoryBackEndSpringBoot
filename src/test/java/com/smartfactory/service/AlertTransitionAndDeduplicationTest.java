@@ -129,16 +129,21 @@ class AlertTransitionAndDeduplicationTest {
         assertThat(activeAlerts.get(0).getSeverity()).isEqualTo("WARNING");
         assertThat(alertRepository.findAll()).hasSize(1); // Pas d'alertes fantômes
 
-        // 3. WARNING -> CRITICAL (85.0°C)
+        // 3. WARNING -> CRITICAL (85.0°C) : Escalade propre
         sensorReadingService.validateAndProcess(topicA, buildPayload("MACH-A", "TEMPERATURE", 85.0, "°C"));
 
         activeAlerts = alertRepository.findByMachineIdAndSensorTypeAndStatus(machineA.getId(), SensorType.TEMPERATURE, "ACTIVE");
         assertThat(activeAlerts).hasSize(1);
         Alert criticalAlert = activeAlerts.get(0);
-        assertThat(criticalAlert.getId()).isEqualTo(warningAlert.getId()); // Même alerte mise à jour en place
+        assertThat(criticalAlert.getId()).isNotEqualTo(warningAlert.getId()); // Nouvelle alerte CRITICAL distincte
         assertThat(criticalAlert.getSeverity()).isEqualTo("CRITICAL");
         assertThat(criticalAlert.getValue()).isEqualTo(85.0);
-        assertThat(alertRepository.findAll()).hasSize(1); // Exactement 1 alerte au total, 0 résiduel en WARNING
+
+        // L'alerte WARNING précédente est marquée RESOLVED (escalade)
+        Alert escalatedWarning = alertRepository.findById(warningAlert.getId()).orElseThrow();
+        assertThat(escalatedWarning.getStatus()).isEqualTo("RESOLVED");
+        assertThat(escalatedWarning.getComment()).contains("CRITICAL");
+        assertThat(alertRepository.findAll()).hasSize(2); // 1 WARNING résolue + 1 CRITICAL active
 
         // 4. Déduplication : 10 lectures consécutives en CRITICAL (88.0°C)
         for (int i = 0; i < 10; i++) {
@@ -147,7 +152,7 @@ class AlertTransitionAndDeduplicationTest {
         activeAlerts = alertRepository.findByMachineIdAndSensorTypeAndStatus(machineA.getId(), SensorType.TEMPERATURE, "ACTIVE");
         assertThat(activeAlerts).hasSize(1);
         assertThat(activeAlerts.get(0).getSeverity()).isEqualTo("CRITICAL");
-        assertThat(alertRepository.findAll()).hasSize(1);
+        assertThat(alertRepository.findAll()).hasSize(2); // Pas de doublons créés pendant le palier CRITICAL
 
         // 5. CRITICAL -> NORMAL (50.0°C)
         sensorReadingService.validateAndProcess(topicA, buildPayload("MACH-A", "TEMPERATURE", 50.0, "°C"));
@@ -155,9 +160,14 @@ class AlertTransitionAndDeduplicationTest {
         activeAlerts = alertRepository.findByMachineIdAndSensorTypeAndStatus(machineA.getId(), SensorType.TEMPERATURE, "ACTIVE");
         assertThat(activeAlerts).isEmpty(); // Résolue automatiquement
 
-        Alert resolvedAlert = alertRepository.findById(warningAlert.getId()).orElseThrow();
-        assertThat(resolvedAlert.getStatus()).isEqualTo("RESOLVED");
-        assertThat(resolvedAlert.getResolvedAt()).isNotNull();
+        Alert resolvedCritical = alertRepository.findById(criticalAlert.getId()).orElseThrow();
+        assertThat(resolvedCritical.getStatus()).isEqualTo("RESOLVED");
+        assertThat(resolvedCritical.getResolvedAt()).isNotNull();
+
+        // L'épisode conserve son historique complet : 1 WARNING résolue et 1 CRITICAL résolue
+        List<Alert> allEpisodeAlerts = alertRepository.findAll();
+        assertThat(allEpisodeAlerts).hasSize(2);
+        assertThat(allEpisodeAlerts).allMatch(a -> "RESOLVED".equals(a.getStatus()));
 
         // 6. NORMAL -> WARNING : Nouvel épisode propre (68.0°C)
         sensorReadingService.validateAndProcess(topicA, buildPayload("MACH-A", "TEMPERATURE", 68.0, "°C"));
@@ -165,10 +175,12 @@ class AlertTransitionAndDeduplicationTest {
         activeAlerts = alertRepository.findByMachineIdAndSensorTypeAndStatus(machineA.getId(), SensorType.TEMPERATURE, "ACTIVE");
         assertThat(activeAlerts).hasSize(1);
         Alert newEpisodeAlert = activeAlerts.get(0);
-        assertThat(newEpisodeAlert.getId()).isNotEqualTo(warningAlert.getId()); // Nouvel identifiant propre
+        assertThat(newEpisodeAlert.getId()).isNotEqualTo(warningAlert.getId());
+        assertThat(newEpisodeAlert.getId()).isNotEqualTo(criticalAlert.getId());
         assertThat(newEpisodeAlert.getStatus()).isEqualTo("ACTIVE");
         assertThat(newEpisodeAlert.getSeverity()).isEqualTo("WARNING");
         assertThat(newEpisodeAlert.getValue()).isEqualTo(68.0);
+        assertThat(alertRepository.findAll()).hasSize(3); // 2 résolues de l'épisode 1 + 1 active de l'épisode 2
     }
 
     @Test

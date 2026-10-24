@@ -173,35 +173,75 @@ public class AlertService {
                 log.info("Transition d'alerte pour machine {} ({}) : {} -> {}",
                         machineCode, sensorType, currentSeverity, effectiveSeverity);
 
-                existing.setSeverity(effectiveSeverity);
-                existing.setValue(value);
-                existing.setThreshold(threshold);
-                existing.setMessage(message);
-                existing.setTimestamp(effectiveTimestamp);
-                if (StringUtils.hasText(anomalyId)) {
-                    existing.setAnomalyId(anomalyId);
-                }
-                Alert updated = alertRepository.save(existing);
+                if ("WARNING".equalsIgnoreCase(currentSeverity) && ("CRITICAL".equalsIgnoreCase(effectiveSeverity) || "HIGH".equalsIgnoreCase(effectiveSeverity))) {
+                    // Pour un même épisode, clore/traiter l'alerte WARNING existante et créer une nouvelle alerte CRITICAL
+                    existing.setStatus("RESOLVED");
+                    existing.setResolvedBy("SYSTEM");
+                    existing.setResolvedAt(effectiveTimestamp);
+                    existing.setComment("Escalade vers alerte " + effectiveSeverity);
+                    alertRepository.save(existing);
 
-                // Nettoyer d'éventuels doublons orphelins actifs
-                List<Alert> duplicates = alertRepository.findByMachineIdAndSensorTypeAndStatus(machineId, sensorType, "ACTIVE");
-                for (Alert dup : duplicates) {
-                    if (!dup.getId().equals(updated.getId())) {
-                        resolveAlert(dup.getId(), "SYSTEM", "Clôture doublon de transition");
+                    Alert newCriticalAlert = new Alert(
+                            machineId,
+                            machineCode,
+                            sensor != null ? sensor.getId() : null,
+                            sensorType,
+                            anomalyId,
+                            effectiveSeverity,
+                            value,
+                            threshold,
+                            message,
+                            effectiveTimestamp
+                    );
+                    Alert savedAlert = alertRepository.save(newCriticalAlert);
+                    log.warn("Nouvelle alerte active créée suite à escalade [{}] pour machine {} ({}) : {}",
+                            savedAlert.getSeverity(), machineCode, sensorType, message);
+
+                    if (anomalyOpt.isPresent()) {
+                        Anomaly anomaly = anomalyOpt.get();
+                        anomaly.setAlertId(savedAlert.getId());
+                        anomaly.setSeverity(effectiveSeverity);
+                        anomalyRepository.save(anomaly);
                     }
+
+                    // Nettoyer d'éventuels doublons orphelins actifs
+                    List<Alert> duplicates = alertRepository.findByMachineIdAndSensorTypeAndStatus(machineId, sensorType, "ACTIVE");
+                    for (Alert dup : duplicates) {
+                        if (!dup.getId().equals(savedAlert.getId())) {
+                            resolveAlert(dup.getId(), "SYSTEM", "Clôture doublon de transition");
+                        }
+                    }
+
+                    // Diffusion WebSocket
+                    realtimeMessageService.broadcastAlert(savedAlert, machineCode);
+
+                    // Notification push et in-app
+                    try {
+                        notificationService.notifyAlert(savedAlert);
+                    } catch (Exception ex) {
+                        log.error("Échec notification alerte transition {} : {}", savedAlert.getId(), ex.getMessage());
+                    }
+
+                    return Optional.of(savedAlert);
+                } else {
+                    // Autre changement de sévérité éventuel
+                    existing.setSeverity(effectiveSeverity);
+                    existing.setValue(value);
+                    existing.setThreshold(threshold);
+                    existing.setMessage(message);
+                    existing.setTimestamp(effectiveTimestamp);
+                    if (StringUtils.hasText(anomalyId)) {
+                        existing.setAnomalyId(anomalyId);
+                    }
+                    Alert updated = alertRepository.save(existing);
+                    realtimeMessageService.broadcastAlert(updated, machineCode);
+                    try {
+                        notificationService.notifyAlert(updated);
+                    } catch (Exception ex) {
+                        log.error("Échec notification transition alerte {} : {}", updated.getId(), ex.getMessage());
+                    }
+                    return Optional.of(updated);
                 }
-
-                // Mettre à jour l'indicateur visuel via WebSocket (retire point WARNING, met point CRITICAL)
-                realtimeMessageService.broadcastAlert(updated, machineCode);
-
-                // Notification pour l'événement de transition
-                try {
-                    notificationService.notifyAlert(updated);
-                } catch (Exception ex) {
-                    log.error("Échec notification transition alerte {} : {}", updated.getId(), ex.getMessage());
-                }
-
-                return Optional.of(updated);
             }
 
             // RÈGLE C : Maintien dans le même état (WARNING -> WARNING ou CRITICAL -> CRITICAL)

@@ -9,12 +9,32 @@ public class DeviceTokenRequest {
 
     private String deviceType; // ANDROID, IOS, WEB
 
+    private String deviceId;
+
     public DeviceTokenRequest() {
+    }
+
+    public DeviceTokenRequest(String token) {
+        this.token = token;
     }
 
     public DeviceTokenRequest(String token, String deviceType) {
         this.token = token;
         this.deviceType = deviceType;
+    }
+
+    public DeviceTokenRequest(String token, String deviceType, String deviceId) {
+        this.token = token;
+        this.deviceType = deviceType;
+        this.deviceId = deviceId;
+    }
+
+    public String getDeviceId() {
+        return deviceId;
+    }
+
+    public void setDeviceId(String deviceId) {
+        this.deviceId = deviceId;
     }
 
     public String getToken() {

@@ -6,6 +6,8 @@ import com.smartfactory.repository.*;
 import com.smartfactory.security.Role;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -20,14 +22,17 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
- * Service de gestion complète des interventions de maintenance (Sprint 6 - US42 à US49).
+ * Service de gestion complète des interventions de maintenance (Sprint 6 - US42 à US50).
  *
- * Types de maintenance pris en charge :
- * 1. CORRECTIVE : Intervention directe pendant/après panne pour remise en état.
- * 2. PREVENTIVE : Prévention de panne avec sous-types stricts SYSTEMATIC (calendaire/horaire) ou CONDITIONAL (état capteurs).
- * 3. IMPROVEMENT : Amélioration technique, fiabilité, sécurité.
+ * Fonctionnalités couvertes :
+ * - Création, planification et clôture d'interventions avec typologie stricte (CORRECTIVE, PREVENTIVE, IMPROVEMENT).
+ * - Affectation de plusieurs techniciens par intervention (technicianIds) avec déduplication et vérification des rôles.
+ * - Migration automatique transparente des documents MongoDB legacy contenant technicianId sans perte de données.
+ * - Notifications persistantes au responsable créateur lors de la modification ou clôture par un technicien.
+ * - Rétrocompatibilité totale avec les anciens contrats d'API et les recherches multicritères.
  */
 @Service
 public class MaintenanceInterventionService {
@@ -68,9 +73,39 @@ public class MaintenanceInterventionService {
     }
 
     /**
+     * Migration automatique à chaud des interventions MongoDB existantes contenant technicianId.
+     * Garantit qu'aucun document n'est supprimé ni corrompu.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void migrateLegacyTechnicianIdData() {
+        try {
+            Query query = new Query(Criteria.where("technicianId").ne(null)
+                    .andOperator(new Criteria().orOperator(
+                            Criteria.where("technicianIds").is(null),
+                            Criteria.where("technicianIds").size(0)
+                    )));
+            List<MaintenanceIntervention> legacyList = mongoTemplate.find(query, MaintenanceIntervention.class);
+            if (!legacyList.isEmpty()) {
+                log.info("Migration MongoDB : {} intervention(s) contenant technicianId détectée(s)...", legacyList.size());
+                for (MaintenanceIntervention interv : legacyList) {
+                    if (StringUtils.hasText(interv.getTechnicianId())) {
+                        interv.getTechnicianIds(); // Auto-synchronise technicianIds
+                        if (interv.getTechnicianNames().isEmpty() && StringUtils.hasText(interv.getTechnicianName())) {
+                            interv.getTechnicianNames().add(interv.getTechnicianName());
+                        }
+                        interventionRepository.save(interv);
+                    }
+                }
+                log.info("Migration MongoDB terminée avec succès (0 donnée perdue).");
+            }
+        } catch (Exception ex) {
+            log.warn("Migration MongoDB interventions non bloquante : {}", ex.getMessage());
+        }
+    }
+
+    /**
      * Crée une nouvelle intervention de maintenance (US42, Section 6.1).
      * RÈGLE STRICTE : Seul le RESPONSABLE_INDUSTRIEL et l'ADMIN peuvent créer une intervention.
-     * Le Technicien et l'Opérateur sont STRICTEMENT INTERDITS.
      */
     public MaintenanceIntervention createIntervention(InterventionCreateRequest request, String currentUsername, com.smartfactory.security.UserPrincipal currentUser) {
         if (request == null) {
@@ -119,6 +154,7 @@ public class MaintenanceInterventionService {
         );
 
         intervention.setScheduledAt(request.getScheduledAt());
+        intervention.setCreatedBy(currentUsername != null ? currentUsername : "SYSTEM");
 
         // 4. Liaison éventuelle avec une alerte ou anomalie existante
         if (StringUtils.hasText(request.getAlertId())) {
@@ -128,7 +164,6 @@ public class MaintenanceInterventionService {
             if (StringUtils.hasText(alert.getAnomalyId())) {
                 intervention.setAnomalyId(alert.getAnomalyId());
             }
-            // Déduire la priorité si non renseignée
             if (request.getPriority() == null && "CRITICAL".equalsIgnoreCase(alert.getSeverity())) {
                 intervention.setPriority(InterventionPriority.CRITICAL);
             } else if (request.getPriority() == null && "HIGH".equalsIgnoreCase(alert.getSeverity())) {
@@ -140,14 +175,17 @@ public class MaintenanceInterventionService {
             intervention.setAnomalyId(request.getAnomalyId().trim());
         }
 
-        // 5. Affectation initiale d'un technicien si spécifié avec notification (Section 3)
-        if (StringUtils.hasText(request.getTechnicianId())) {
-            assignTechnicianInternal(intervention, request.getTechnicianId().trim(), currentUsername, true);
+        // 5. Affectation initiale d'un ou plusieurs techniciens si spécifié (Exigence 6)
+        List<String> requestedTechIds = request.getTechnicianIds();
+        if (requestedTechIds != null && !requestedTechIds.isEmpty()) {
+            assignTechniciansInternal(intervention, requestedTechIds, currentUsername, true);
+        } else if (StringUtils.hasText(request.getTechnicianId())) {
+            assignTechniciansInternal(intervention, List.of(request.getTechnicianId().trim()), currentUsername, true);
         }
 
         MaintenanceIntervention saved = interventionRepository.save(intervention);
-        log.info("Intervention de maintenance créée [{}] ({}) sur machine [{}] par [{}]",
-                saved.getId(), saved.getType(), machine.getCode(), currentUsername);
+        log.info("Intervention de maintenance créée [{}] ({}) sur machine [{}] par [{}] affectée à {} technicien(s)",
+                saved.getId(), saved.getType(), machine.getCode(), currentUsername, saved.getTechnicianIds().size());
         return saved;
     }
 
@@ -156,96 +194,116 @@ public class MaintenanceInterventionService {
     }
 
     /**
-     * Assigne un technicien éligible à une intervention (US43, Section 3).
-     * Déclenche une notification persistante et temps réel vers le technicien assigné.
+     * Assigne une liste de techniciens à une intervention (US43, Exigence 6).
      */
-    public MaintenanceIntervention assignTechnician(String interventionId, String technicianId, String assignedBy) {
+    public MaintenanceIntervention assignTechnicians(String interventionId, List<String> technicianIds, String assignedBy) {
         MaintenanceIntervention intervention = getInterventionById(interventionId);
-        assignTechnicianInternal(intervention, technicianId, assignedBy, true);
+        assignTechniciansInternal(intervention, technicianIds, assignedBy, true);
         MaintenanceIntervention saved = interventionRepository.save(intervention);
-        log.info("Intervention [{}] assignée au technicien [{}] par [{}]", saved.getId(), technicianId, assignedBy);
+        log.info("Intervention [{}] assignée aux techniciens {} par [{}]", saved.getId(), saved.getTechnicianIds(), assignedBy);
         return saved;
     }
 
-    private void assignTechnicianInternal(MaintenanceIntervention intervention, String technicianId, String assignedBy, boolean dispatchNotification) {
-        User technician = userRepository.findById(technicianId)
-                .or(() -> userRepository.findByEmail(technicianId))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Technicien introuvable : " + technicianId));
+    /**
+     * Assigne un technicien éligible unique (Rétrocompatibilité ascendante).
+     */
+    public MaintenanceIntervention assignTechnician(String interventionId, String technicianId, String assignedBy) {
+        List<String> list = StringUtils.hasText(technicianId) ? List.of(technicianId.trim()) : Collections.emptyList();
+        return assignTechnicians(interventionId, list, assignedBy);
+    }
 
-        // Vérification d'éligibilité (Rôle ou privilège)
-        boolean isEligible = technician.getRole() == Role.TECHNICIAN
-                || technician.getRole() == Role.RESPONSABLE_INDUSTRIEL
-                || technician.getRole() == Role.ADMIN
-                || (technician.getEffectivePermissions() != null
-                && technician.getEffectivePermissions().contains(com.smartfactory.security.Permission.MAINTENANCE_WRITE));
-
-        if (!isEligible) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "L'utilisateur [" + technician.getEmail() + "] n'est pas habilité à effectuer des interventions de maintenance");
+    private void assignTechniciansInternal(MaintenanceIntervention intervention, List<String> technicianIds, String assignedBy, boolean dispatchNotification) {
+        if (technicianIds == null || technicianIds.isEmpty()) {
+            intervention.setTechnicianIds(new ArrayList<>());
+            intervention.setTechnicianNames(new ArrayList<>());
+            return;
         }
 
-        String previousTechId = intervention.getTechnicianId();
-        intervention.setTechnicianId(technician.getId());
-        intervention.setTechnicianName(technician.getFirstName() != null ? (technician.getFirstName() + " " + technician.getLastName()) : technician.getEmail());
+        List<String> previousTechIds = intervention.getTechnicianIds() != null
+                ? new ArrayList<>(intervention.getTechnicianIds())
+                : new ArrayList<>();
+
+        // Déduplication stricte et validation des techniciens affectés
+        List<String> distinctTechIds = technicianIds.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .distinct()
+                .collect(Collectors.toList());
+
+        List<User> validatedTechnicians = new ArrayList<>();
+        for (String techId : distinctTechIds) {
+            User technician = userRepository.findById(techId)
+                    .or(() -> userRepository.findByEmail(techId))
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Technicien introuvable : " + techId));
+
+            boolean isEligible = technician.getRole() == Role.TECHNICIAN
+                    || technician.getRole() == Role.RESPONSABLE_INDUSTRIEL
+                    || technician.getRole() == Role.ADMIN
+                    || (technician.getEffectivePermissions() != null
+                    && technician.getEffectivePermissions().contains(com.smartfactory.security.Permission.MAINTENANCE_WRITE));
+
+            if (!isEligible) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "L'utilisateur [" + technician.getEmail() + "] n'a pas les droits nécessaires pour intervenir sur la maintenance");
+            }
+            validatedTechnicians.add(technician);
+        }
+
+        List<String> finalTechIds = validatedTechnicians.stream().map(User::getId).collect(Collectors.toList());
+        List<String> finalTechNames = validatedTechnicians.stream()
+                .map(u -> u.getFirstName() != null ? (u.getFirstName() + " " + u.getLastName()) : u.getEmail())
+                .collect(Collectors.toList());
+
+        intervention.setTechnicianIds(finalTechIds);
+        intervention.setTechnicianNames(finalTechNames);
         intervention.setAssignedBy(assignedBy != null ? assignedBy : "SYSTEM");
         intervention.setAssignedAt(Instant.now());
 
-        if (intervention.getStatus() == InterventionStatus.PENDING) {
+        if (intervention.getStatus() == InterventionStatus.PENDING && !finalTechIds.isEmpty()) {
             intervention.setStatus(InterventionStatus.ASSIGNED);
         }
 
-        // Section 3 : Notification persistante et temps réel
         if (dispatchNotification) {
-            if (previousTechId == null) {
-                // Règle 1, 2, 3, 4, 6 : Première assignation -> notifier uniquement le technicien concerné
-                try {
-                    notificationService.notifyMaintenanceAssigned(
-                            technician.getId(),
-                            intervention.getId(),
-                            intervention.getTitle(),
-                            intervention.getMachineCode(),
-                            intervention.getType() != null ? intervention.getType().name() : null,
-                            intervention.getPreventiveSubtype() != null ? intervention.getPreventiveSubtype().name() : null,
-                            intervention.getPriority() != null ? intervention.getPriority().name() : null,
-                            intervention.getAssignedAt()
-                    );
-                } catch (Exception ex) {
-                    log.warn("Notification d'assignation échouée pour technicien [{}] : {}", technician.getId(), ex.getMessage());
-                }
-            } else if (!previousTechId.equals(technician.getId())) {
-                // Règle 8 : Réassignation -> notifier le nouveau technicien et informer l'ancien
-                try {
-                    notificationService.notifyMaintenanceAssigned(
-                            technician.getId(),
-                            intervention.getId(),
-                            intervention.getTitle(),
-                            intervention.getMachineCode(),
-                            intervention.getType() != null ? intervention.getType().name() : null,
-                            intervention.getPreventiveSubtype() != null ? intervention.getPreventiveSubtype().name() : null,
-                            intervention.getPriority() != null ? intervention.getPriority().name() : null,
-                            intervention.getAssignedAt()
-                    );
-                    notificationService.notifyMaintenanceReassigned(
-                            previousTechId,
-                            intervention.getId(),
-                            intervention.getTitle(),
-                            intervention.getTechnicianName()
-                    );
-                } catch (Exception ex) {
-                    log.warn("Notification de réassignation échouée : {}", ex.getMessage());
+            // Notifier chaque technicien nouvellement assigné
+            for (User tech : validatedTechnicians) {
+                if (!previousTechIds.contains(tech.getId())) {
+                    try {
+                        notificationService.notifyMaintenanceAssigned(
+                                tech.getId(),
+                                intervention.getId(),
+                                intervention.getTitle(),
+                                intervention.getMachineCode(),
+                                intervention.getType() != null ? intervention.getType().name() : null,
+                                intervention.getPreventiveSubtype() != null ? intervention.getPreventiveSubtype().name() : null,
+                                intervention.getPriority() != null ? intervention.getPriority().name() : null,
+                                intervention.getAssignedAt()
+                        );
+                    } catch (Exception ex) {
+                        log.warn("Notification d'assignation échouée pour [{}] : {}", tech.getId(), ex.getMessage());
+                    }
                 }
             }
-            // Règle 7 : Si previousTechId == technician.getId(), aucune notification supplémentaire
-        }
-    }
 
-    private void assignTechnicianInternal(MaintenanceIntervention intervention, String technicianId, String assignedBy) {
-        assignTechnicianInternal(intervention, technicianId, assignedBy, false);
+            // Notifier les anciens techniciens retirés de l'intervention
+            for (String prevId : previousTechIds) {
+                if (!finalTechIds.contains(prevId)) {
+                    try {
+                        notificationService.notifyMaintenanceReassigned(
+                                prevId,
+                                intervention.getId(),
+                                intervention.getTitle(),
+                                String.join(", ", finalTechNames)
+                        );
+                    } catch (Exception ex) {
+                        log.warn("Notification de réassignation échouée pour [{}] : {}", prevId, ex.getMessage());
+                    }
+                }
+            }
+        }
     }
 
     /**
      * Modification des informations de gestion et planification (Section 6.2).
-     * Réservé exclusivement au Responsable Industriel et à l'Admin.
      */
     public MaintenanceIntervention updateIntervention(String interventionId, com.smartfactory.dto.InterventionUpdateRequest request, String updatedBy, com.smartfactory.security.UserPrincipal currentUser) {
         if (currentUser != null && (currentUser.getRole() == Role.TECHNICIAN || currentUser.getRole() == Role.OPERATOR)) {
@@ -274,13 +332,11 @@ public class MaintenanceInterventionService {
             intervention.setScheduledAt(request.getScheduledAt());
         }
 
-        // Modification de technicien éventuelle
-        if (StringUtils.hasText(request.getTechnicianId())) {
-            String targetTech = request.getTechnicianId().trim();
-            boolean isSame = targetTech.equals(intervention.getTechnicianId());
-            if (!isSame) {
-                assignTechnicianInternal(intervention, targetTech, updatedBy, true);
-            }
+        // Modification des techniciens affectés (liste prioritaire ou id simple)
+        if (request.getTechnicianIds() != null) {
+            assignTechniciansInternal(intervention, request.getTechnicianIds(), updatedBy, true);
+        } else if (StringUtils.hasText(request.getTechnicianId())) {
+            assignTechniciansInternal(intervention, List.of(request.getTechnicianId().trim()), updatedBy, true);
         }
 
         intervention.setUpdatedAt(Instant.now());
@@ -291,6 +347,7 @@ public class MaintenanceInterventionService {
 
     /**
      * Contrôle d'accès strict pour l'exécution d'interventions par un technicien (Section 6.2).
+     * Vérifie que le technicien fait partie de la liste technicianIds.
      */
     public void checkTechnicianExecutionAccess(MaintenanceIntervention intervention, com.smartfactory.security.UserPrincipal currentUser, String action) {
         if (currentUser == null) return;
@@ -300,9 +357,18 @@ public class MaintenanceInterventionService {
         if (currentUser.getRole() == Role.TECHNICIAN) {
             String currentId = currentUser.getId();
             String currentEmail = currentUser.getUsername();
-            String assignedTech = intervention != null ? intervention.getTechnicianId() : null;
-            boolean assigned = StringUtils.hasText(assignedTech)
-                    && (assignedTech.equals(currentId) || assignedTech.equalsIgnoreCase(currentEmail));
+
+            List<String> assignedTechs = intervention != null ? intervention.getTechnicianIds() : Collections.emptyList();
+            boolean assigned = assignedTechs.stream().anyMatch(t ->
+                    (currentId != null && t.equalsIgnoreCase(currentId)) ||
+                    (currentEmail != null && t.equalsIgnoreCase(currentEmail)));
+
+            // Rétrocompatibilité avec champ legacy technicianId
+            if (!assigned && intervention != null && StringUtils.hasText(intervention.getTechnicianId())) {
+                assigned = intervention.getTechnicianId().equalsIgnoreCase(currentId)
+                        || intervention.getTechnicianId().equalsIgnoreCase(currentEmail);
+            }
+
             if (!assigned) {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                         "Accès refusé : un technicien ne peut pas " + action + " une intervention qui ne lui est pas assignée");
@@ -321,9 +387,17 @@ public class MaintenanceInterventionService {
         if (currentUser.getRole() == Role.TECHNICIAN) {
             String currentId = currentUser.getId();
             String currentEmail = currentUser.getUsername();
-            String assignedTech = intervention != null ? intervention.getTechnicianId() : null;
-            boolean assigned = StringUtils.hasText(assignedTech)
-                    && (assignedTech.equals(currentId) || assignedTech.equalsIgnoreCase(currentEmail));
+
+            List<String> assignedTechs = intervention != null ? intervention.getTechnicianIds() : Collections.emptyList();
+            boolean assigned = assignedTechs.stream().anyMatch(t ->
+                    (currentId != null && t.equalsIgnoreCase(currentId)) ||
+                    (currentEmail != null && t.equalsIgnoreCase(currentEmail)));
+
+            if (!assigned && intervention != null && StringUtils.hasText(intervention.getTechnicianId())) {
+                assigned = intervention.getTechnicianId().equalsIgnoreCase(currentId)
+                        || intervention.getTechnicianId().equalsIgnoreCase(currentEmail);
+            }
+
             if (!assigned) {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                         "Accès refusé : l'intervention demandée n'est pas assignée à ce technicien");
@@ -333,6 +407,7 @@ public class MaintenanceInterventionService {
 
     /**
      * Enregistre un diagnostic technique sur l'intervention (US45, Section 6.2).
+     * Notifie le responsable créateur (Exigence 5).
      */
     public MaintenanceIntervention addDiagnosis(String interventionId, DiagnosisCreateRequest request, String techId, String techName, com.smartfactory.security.UserPrincipal currentUser) {
         MaintenanceIntervention intervention = getInterventionById(interventionId);
@@ -356,6 +431,24 @@ public class MaintenanceInterventionService {
 
         MaintenanceIntervention saved = interventionRepository.save(intervention);
         log.info("Diagnostic ajouté sur l'intervention [{}] par [{}]", saved.getId(), techName);
+
+        // Notification vers le responsable créateur (Exigence 5)
+        if (StringUtils.hasText(saved.getCreatedBy())) {
+            try {
+                notificationService.notifyTechnicianModifiedIntervention(
+                        saved.getCreatedBy(),
+                        saved.getId(),
+                        saved.getTitle(),
+                        saved.getMachineCode(),
+                        techId,
+                        techName,
+                        "Diagnostic : " + request.getProbableCause()
+                );
+            } catch (Exception ex) {
+                log.warn("Échec notification modification responsable créateur : {}", ex.getMessage());
+            }
+        }
+
         return saved;
     }
 
@@ -365,6 +458,7 @@ public class MaintenanceInterventionService {
 
     /**
      * Enregistre une action réalisée sur l'intervention (US46, Section 6.2).
+     * Notifie le responsable créateur (Exigence 5).
      */
     public MaintenanceIntervention addAction(String interventionId, ActionCreateRequest request, String techId, String techName, com.smartfactory.security.UserPrincipal currentUser) {
         MaintenanceIntervention intervention = getInterventionById(interventionId);
@@ -389,6 +483,24 @@ public class MaintenanceInterventionService {
 
         MaintenanceIntervention saved = interventionRepository.save(intervention);
         log.info("Action ajoutée sur l'intervention [{}] par [{}]", saved.getId(), techName);
+
+        // Notification vers le responsable créateur (Exigence 5)
+        if (StringUtils.hasText(saved.getCreatedBy())) {
+            try {
+                notificationService.notifyTechnicianModifiedIntervention(
+                        saved.getCreatedBy(),
+                        saved.getId(),
+                        saved.getTitle(),
+                        saved.getMachineCode(),
+                        techId,
+                        techName,
+                        "Action : " + request.getDescription()
+                );
+            } catch (Exception ex) {
+                log.warn("Échec notification modification responsable créateur : {}", ex.getMessage());
+            }
+        }
+
         return saved;
     }
 
@@ -398,6 +510,7 @@ public class MaintenanceInterventionService {
 
     /**
      * Ajoute une observation sur l'intervention (US47, Section 6.2).
+     * Notifie le responsable créateur (Exigence 5).
      */
     public MaintenanceIntervention addObservation(String interventionId, ObservationCreateRequest request, String authorId, String authorName, com.smartfactory.security.UserPrincipal currentUser) {
         MaintenanceIntervention intervention = getInterventionById(interventionId);
@@ -415,6 +528,24 @@ public class MaintenanceInterventionService {
 
         MaintenanceIntervention saved = interventionRepository.save(intervention);
         log.info("Observation ajoutée sur l'intervention [{}] par [{}]", saved.getId(), authorName);
+
+        // Notification vers le responsable créateur (Exigence 5)
+        if (StringUtils.hasText(saved.getCreatedBy())) {
+            try {
+                notificationService.notifyTechnicianModifiedIntervention(
+                        saved.getCreatedBy(),
+                        saved.getId(),
+                        saved.getTitle(),
+                        saved.getMachineCode(),
+                        authorId,
+                        authorName,
+                        "Observation : " + request.getContent()
+                );
+            } catch (Exception ex) {
+                log.warn("Échec notification modification responsable créateur : {}", ex.getMessage());
+            }
+        }
+
         return saved;
     }
 
@@ -424,6 +555,7 @@ public class MaintenanceInterventionService {
 
     /**
      * Clôture formelle d'une intervention de maintenance (US48, Section 6.2).
+     * Notifie spécifiquement le responsable créateur (Exigence 5).
      */
     public MaintenanceIntervention closeIntervention(String interventionId, InterventionCloseRequest request, String closedBy, com.smartfactory.security.UserPrincipal currentUser) {
         MaintenanceIntervention intervention = getInterventionById(interventionId);
@@ -478,6 +610,24 @@ public class MaintenanceInterventionService {
 
         MaintenanceIntervention saved = interventionRepository.save(intervention);
         log.info("Intervention [{}] clôturée avec succès par [{}]", saved.getId(), closedBy);
+
+        // Notification au responsable créateur (Exigence 5)
+        if (StringUtils.hasText(saved.getCreatedBy())) {
+            try {
+                notificationService.notifyTechnicianCompletedIntervention(
+                        saved.getCreatedBy(),
+                        saved.getId(),
+                        saved.getTitle(),
+                        saved.getMachineCode(),
+                        closedBy,
+                        closedBy,
+                        request != null ? request.getClosureNotes() : null
+                );
+            } catch (Exception ex) {
+                log.warn("Échec notification clôture responsable créateur : {}", ex.getMessage());
+            }
+        }
+
         return saved;
     }
 
@@ -539,7 +689,6 @@ public class MaintenanceInterventionService {
             });
         }
 
-        // Récupération des mesures contextuelles autour de l'incident (±10 minutes) depuis la base hebdomadaire ciblée
         Instant from = anomaly.getTimestamp().minus(10, ChronoUnit.MINUTES);
         Instant to = anomaly.getTimestamp().plus(10, ChronoUnit.MINUTES);
 
@@ -571,6 +720,7 @@ public class MaintenanceInterventionService {
 
     /**
      * Consultation de l'historique complet des interventions avec filtres et pagination (US49, Section 6.3).
+     * Prend en compte la recherche par technicien affecté (technicianIds) et la rétrocompatibilité (technicianId).
      */
     public Page<MaintenanceIntervention> getInterventions(String machineId,
                                                           String technicianId,
@@ -603,11 +753,16 @@ public class MaintenanceInterventionService {
 
         if (currentUser != null && currentUser.getRole() == Role.TECHNICIAN) {
             criteriaList.add(new Criteria().orOperator(
+                    Criteria.where("technicianIds").is(currentUser.getId()),
+                    Criteria.where("technicianIds").is(currentUser.getUsername()),
                     Criteria.where("technicianId").is(currentUser.getId()),
                     Criteria.where("technicianId").is(currentUser.getUsername())
             ));
         } else if (StringUtils.hasText(technicianId)) {
-            criteriaList.add(Criteria.where("technicianId").is(technicianId.trim()));
+            criteriaList.add(new Criteria().orOperator(
+                    Criteria.where("technicianIds").is(technicianId.trim()),
+                    Criteria.where("technicianId").is(technicianId.trim())
+            ));
         }
 
         if (type != null) {

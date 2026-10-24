@@ -324,10 +324,11 @@ class SensorReadingServiceTest {
                 """;
         readingService.validateAndProcess(topic, criticalPayload);
 
-        alerts = alertRepository.findAll();
-        assertThat(alerts).hasSize(1);
-        assertThat(alerts.get(0).getSeverity()).isEqualTo("CRITICAL");
-        assertThat(alerts.get(0).getValue()).isEqualTo(88.0);
+        List<Alert> activeAlerts = alertRepository.findByMachineIdAndSensorTypeAndStatus(machine.getId(), SensorType.TEMPERATURE, "ACTIVE");
+        assertThat(activeAlerts).hasSize(1);
+        assertThat(activeAlerts.get(0).getSeverity()).isEqualTo("CRITICAL");
+        assertThat(activeAlerts.get(0).getValue()).isEqualTo(88.0);
+        assertThat(alertRepository.findAll()).hasSize(2); // 1 WARNING résolue (escaladée) + 1 CRITICAL active (historique conservé)
     }
 
     @Test

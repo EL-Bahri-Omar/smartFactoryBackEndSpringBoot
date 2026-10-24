@@ -279,4 +279,37 @@ class MaintenanceRbacSecurityTest {
                 .andExpect(jsonPath("$.content.length()").value(1))
                 .andExpect(jsonPath("$.content[0].title").value("Intervention Tech 1"));
     }
+
+    @Test
+    @DisplayName("Multiple Technicians: Les deux techniciens assignés peuvent consulter et intervenir")
+    void testMultipleTechniciansCanExecuteAndConsult() throws Exception {
+        MaintenanceIntervention inter = new MaintenanceIntervention(
+                machine.getId(), machine.getCode(), "Intervention Partagée", "Desc",
+                MaintenanceType.CORRECTIVE, null, InterventionPriority.HIGH
+        );
+        inter.setTechnicianIds(List.of(tech1.getId(), tech2.getId()));
+        inter = interventionRepository.save(inter);
+
+        // Tech 1 peut consulter
+        mockMvc.perform(get("/api/maintenance/" + inter.getId())
+                        .header("Authorization", "Bearer " + tech1Token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Intervention Partagée"));
+
+        // Tech 2 peut aussi consulter
+        mockMvc.perform(get("/api/maintenance/" + inter.getId())
+                        .header("Authorization", "Bearer " + tech2Token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Intervention Partagée"));
+
+        // Tech 2 peut ajouter un diagnostic
+        DiagnosisCreateRequest diagReq = new DiagnosisCreateRequest();
+        diagReq.setProbableCause("Usure courroie");
+        diagReq.setDetails("Détails tech 2");
+        mockMvc.perform(post("/api/maintenance/" + inter.getId() + "/diagnoses")
+                        .header("Authorization", "Bearer " + tech2Token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(diagReq)))
+                .andExpect(status().isOk());
+    }
 }

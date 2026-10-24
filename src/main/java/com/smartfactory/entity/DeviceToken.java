@@ -25,6 +25,10 @@ public class DeviceToken {
 
     private String deviceType; // ANDROID, IOS, WEB
 
+    private String deviceId;
+
+    private boolean active = true;
+
     @CreatedDate
     private Instant createdAt;
 
@@ -38,6 +42,17 @@ public class DeviceToken {
         this.userId = userId;
         this.token = token;
         this.deviceType = deviceType != null ? deviceType.toUpperCase() : "ANDROID";
+        this.active = true;
+        this.createdAt = Instant.now();
+        this.lastActiveAt = Instant.now();
+    }
+
+    public DeviceToken(String userId, String token, String deviceType, String deviceId) {
+        this.userId = userId;
+        this.token = token;
+        this.deviceType = deviceType != null ? deviceType.toUpperCase() : "ANDROID";
+        this.deviceId = deviceId;
+        this.active = true;
         this.createdAt = Instant.now();
         this.lastActiveAt = Instant.now();
     }
@@ -72,6 +87,22 @@ public class DeviceToken {
 
     public void setDeviceType(String deviceType) {
         this.deviceType = deviceType;
+    }
+
+    public String getDeviceId() {
+        return deviceId;
+    }
+
+    public void setDeviceId(String deviceId) {
+        this.deviceId = deviceId;
+    }
+
+    public boolean isActive() {
+        return active;
+    }
+
+    public void setActive(boolean active) {
+        this.active = active;
     }
 
     public Instant getCreatedAt() {

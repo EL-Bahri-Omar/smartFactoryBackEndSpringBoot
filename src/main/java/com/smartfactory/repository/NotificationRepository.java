@@ -29,7 +29,11 @@ public interface NotificationRepository extends MongoRepository<AppNotification,
 
     boolean existsByUserIdAndAlertIdAndType(String userId, String alertId, String type);
 
+    boolean existsByUserIdAndInterventionIdAndType(String userId, String interventionId, String type);
+
     List<AppNotification> findByUserIdAndAlertId(String userId, String alertId);
+
+    List<AppNotification> findByUserIdAndInterventionId(String userId, String interventionId);
 
     void deleteByUserId(String userId);
 }

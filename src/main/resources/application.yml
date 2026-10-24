@@ -23,6 +23,9 @@ spring:
 app:
   mail:
     from: ${MAIL_FROM:noreply@smartfactory.com}
+  firebase:
+    enabled: ${FIREBASE_ENABLED:true}
+    credentials-path: ${FIREBASE_CREDENTIALS_PATH:classpath:smartfactory-production-firebase-adminsdk-fbsvc-22cc907731.json}
 
 otp:
   expiration-minutes: ${OTP_EXPIRATION_MINUTES:10}

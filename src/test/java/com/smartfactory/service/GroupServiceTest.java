@@ -1,8 +1,10 @@
 package com.smartfactory.service;
 
+import com.smartfactory.entity.AppNotification;
 import com.smartfactory.entity.Group;
 import com.smartfactory.entity.User;
 import com.smartfactory.repository.GroupRepository;
+import com.smartfactory.repository.NotificationRepository;
 import com.smartfactory.repository.UserRepository;
 import com.smartfactory.security.Role;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +34,9 @@ class GroupServiceTest {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private NotificationRepository notificationRepository;
+
     private User operator1;
     private User operator2;
     private User technician;
@@ -39,6 +44,7 @@ class GroupServiceTest {
 
     @BeforeEach
     void setUp() {
+        notificationRepository.deleteAll();
         groupRepository.deleteAll();
         userRepository.deleteAll();
 
@@ -361,5 +367,33 @@ class GroupServiceTest {
         Group updatedG2 = groupRepository.findById(g2.getId()).orElseThrow();
         assertThat(updatedG2.getOperators()).isEmpty();
         assertThat(updatedG2.getSupervisorId()).isNull();
+    }
+
+    @Test
+    @DisplayName("Notification: Add operator triggers notification to operator")
+    void testAddOperatorSendsNotification() {
+        Group group = groupRepository.save(new Group("Equipe Usinage", new ArrayList<>(), null));
+
+        groupService.addOperator(group.getId(), operator1.getId());
+
+        List<AppNotification> notifs = notificationRepository.findByUserId(operator1.getId());
+        assertThat(notifs).hasSize(1);
+        assertThat(notifs.get(0).getTitle()).contains("Equipe Usinage");
+        assertThat(notifs.get(0).getMessage()).contains("ajouté");
+        assertThat(notifs.get(0).getType()).isEqualTo("GROUP_MEMBER_ADDED");
+    }
+
+    @Test
+    @DisplayName("Notification: Remove operator triggers notification to operator")
+    void testRemoveOperatorSendsNotification() {
+        Group group = groupRepository.save(new Group("Equipe Usinage", new ArrayList<>(List.of(operator1.getId())), null));
+
+        groupService.removeOperator(group.getId(), operator1.getId());
+
+        List<AppNotification> notifs = notificationRepository.findByUserId(operator1.getId());
+        assertThat(notifs).hasSize(1);
+        assertThat(notifs.get(0).getTitle()).contains("Equipe Usinage");
+        assertThat(notifs.get(0).getMessage()).contains("retiré");
+        assertThat(notifs.get(0).getType()).isEqualTo("GROUP_MEMBER_REMOVED");
     }
 }

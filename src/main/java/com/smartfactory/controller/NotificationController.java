@@ -51,17 +51,29 @@ public class NotificationController {
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
         String userId = getUserId(currentUser);
-        DeviceToken token = notificationService.registerToken(userId, request.getToken(), request.getDeviceType());
+        DeviceToken token = notificationService.registerToken(userId, request.getToken(), request.getDeviceType(), request.getDeviceId());
         return new ResponseEntity<>(token, HttpStatus.CREATED);
     }
 
     /**
-     * Supprime un token de terminal lors de la déconnexion.
+     * Supprime un token de terminal lors de la déconnexion via path variable.
      */
     @DeleteMapping("/tokens/{token}")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<Void> unregisterDeviceToken(@PathVariable String token) {
         notificationService.unregisterToken(token);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Supprime un token de terminal lors de la déconnexion via JSON body.
+     */
+    @DeleteMapping("/tokens")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Void> unregisterDeviceTokenBody(@RequestBody(required = false) Map<String, String> body) {
+        if (body != null && body.containsKey("token")) {
+            notificationService.unregisterToken(body.get("token"));
+        }
         return ResponseEntity.noContent().build();
     }
 

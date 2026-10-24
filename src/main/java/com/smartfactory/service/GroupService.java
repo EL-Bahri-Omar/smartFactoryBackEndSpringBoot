@@ -18,13 +18,18 @@ import java.util.stream.Collectors;
 @Service
 public class GroupService {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(GroupService.class);
+
     private final GroupRepository groupRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     public GroupService(GroupRepository groupRepository,
-                        UserRepository userRepository) {
+                        UserRepository userRepository,
+                        NotificationService notificationService) {
         this.groupRepository = groupRepository;
         this.userRepository = userRepository;
+        this.notificationService = notificationService;
     }
 
     public Map<String, Object> getAllGroups(String search, Pageable pageable) {
@@ -88,6 +93,15 @@ public class GroupService {
         Group saved = groupRepository.save(group);
         String supervisorName = resolveSupervisorName(saved.getSupervisorId());
         saved.setSupervisorName(supervisorName);
+
+        for (String opId : validatedOperators) {
+            try {
+                notificationService.notifyOperatorAddedToGroup(opId, saved.getId(), saved.getName());
+            } catch (Exception ex) {
+                log.warn("Erreur notification création groupe pour opérateur [{}] : {}", opId, ex.getMessage());
+            }
+        }
+
         return saved;
     }
 
@@ -100,6 +114,7 @@ public class GroupService {
                     "GROUP_ALREADY_EXISTS: Group already exists with name: " + trimmedName);
         }
 
+        List<String> previousOperators = group.getOperators() != null ? new ArrayList<>(group.getOperators()) : new ArrayList<>();
         List<String> validatedOperators = validateAndCollectOperators(request.getOperators());
         String validatedSupervisorId = validateSupervisor(request.getSupervisorId(), validatedOperators);
 
@@ -110,6 +125,29 @@ public class GroupService {
         Group updated = groupRepository.save(group);
         String supervisorName = resolveSupervisorName(updated.getSupervisorId());
         updated.setSupervisorName(supervisorName);
+
+        // Notifier les opérateurs nouvellement ajoutés
+        for (String opId : validatedOperators) {
+            if (!previousOperators.contains(opId)) {
+                try {
+                    notificationService.notifyOperatorAddedToGroup(opId, updated.getId(), updated.getName());
+                } catch (Exception ex) {
+                    log.warn("Erreur notification ajout groupe [{}] : {}", opId, ex.getMessage());
+                }
+            }
+        }
+
+        // Notifier les opérateurs retirés du groupe
+        for (String opId : previousOperators) {
+            if (!validatedOperators.contains(opId)) {
+                try {
+                    notificationService.notifyOperatorRemovedFromGroup(opId, updated.getId(), updated.getName());
+                } catch (Exception ex) {
+                    log.warn("Erreur notification retrait groupe [{}] : {}", opId, ex.getMessage());
+                }
+            }
+        }
+
         return updated;
     }
 
@@ -140,6 +178,13 @@ public class GroupService {
         Group saved = groupRepository.save(group);
         String supervisorName = resolveSupervisorName(saved.getSupervisorId());
         saved.setSupervisorName(supervisorName);
+
+        try {
+            notificationService.notifyOperatorAddedToGroup(userId, saved.getId(), saved.getName());
+        } catch (Exception ex) {
+            log.warn("Erreur notification ajout opérateur [{}] au groupe [{}] : {}", userId, saved.getId(), ex.getMessage());
+        }
+
         return saved;
     }
 
@@ -161,6 +206,13 @@ public class GroupService {
         Group saved = groupRepository.save(group);
         String supervisorName = resolveSupervisorName(saved.getSupervisorId());
         saved.setSupervisorName(supervisorName);
+
+        try {
+            notificationService.notifyOperatorRemovedFromGroup(userId, saved.getId(), saved.getName());
+        } catch (Exception ex) {
+            log.warn("Erreur notification retrait opérateur [{}] du groupe [{}] : {}", userId, saved.getId(), ex.getMessage());
+        }
+
         return saved;
     }
 

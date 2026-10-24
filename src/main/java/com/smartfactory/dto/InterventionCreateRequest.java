@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 import java.time.Instant;
+import java.util.List;
 
 /**
  * Requête de création d'une intervention de maintenance (Sprint 6 - US42).
@@ -32,6 +33,8 @@ public class InterventionCreateRequest {
     private String alertId;
 
     private String anomalyId;
+
+    private List<String> technicianIds = new java.util.ArrayList<>();
 
     private String technicianId;
 
@@ -64,8 +67,49 @@ public class InterventionCreateRequest {
     public String getAnomalyId() { return anomalyId; }
     public void setAnomalyId(String anomalyId) { this.anomalyId = anomalyId; }
 
-    public String getTechnicianId() { return technicianId; }
-    public void setTechnicianId(String technicianId) { this.technicianId = technicianId; }
+    public List<String> getTechnicianIds() {
+        if (technicianIds == null) {
+            technicianIds = new java.util.ArrayList<>();
+        }
+        if (technicianIds.isEmpty() && org.springframework.util.StringUtils.hasText(technicianId)) {
+            technicianIds.add(technicianId.trim());
+        }
+        return technicianIds;
+    }
+
+    public void setTechnicianIds(List<String> technicianIds) {
+        if (technicianIds != null) {
+            this.technicianIds = technicianIds.stream()
+                    .filter(org.springframework.util.StringUtils::hasText)
+                    .map(String::trim)
+                    .distinct()
+                    .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
+            this.technicianId = this.technicianIds.isEmpty() ? null : this.technicianIds.get(0);
+        } else {
+            this.technicianIds = new java.util.ArrayList<>();
+            this.technicianId = null;
+        }
+    }
+
+    public String getTechnicianId() {
+        if (org.springframework.util.StringUtils.hasText(technicianId)) {
+            return technicianId;
+        }
+        return (technicianIds != null && !technicianIds.isEmpty()) ? technicianIds.get(0) : null;
+    }
+
+    public void setTechnicianId(String technicianId) {
+        this.technicianId = technicianId;
+        if (org.springframework.util.StringUtils.hasText(technicianId)) {
+            if (this.technicianIds == null) {
+                this.technicianIds = new java.util.ArrayList<>();
+            }
+            String clean = technicianId.trim();
+            if (!this.technicianIds.contains(clean)) {
+                this.technicianIds.add(clean);
+            }
+        }
+    }
 
     public Instant getScheduledAt() { return scheduledAt; }
     public void setScheduledAt(Instant scheduledAt) { this.scheduledAt = scheduledAt; }

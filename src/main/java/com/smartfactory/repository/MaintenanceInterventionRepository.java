@@ -20,6 +20,12 @@ public interface MaintenanceInterventionRepository extends MongoRepository<Maint
 
     Page<MaintenanceIntervention> findByTechnicianId(String technicianId, Pageable pageable);
 
+    Page<MaintenanceIntervention> findByTechnicianIdsContaining(String technicianId, Pageable pageable);
+
+    Page<MaintenanceIntervention> findByTechnicianIdsContainingOrTechnicianId(String technicianId1, String technicianId2, Pageable pageable);
+
+    List<MaintenanceIntervention> findByTechnicianIdsContaining(String technicianId);
+
     Page<MaintenanceIntervention> findByStatus(InterventionStatus status, Pageable pageable);
 
     Page<MaintenanceIntervention> findByType(MaintenanceType type, Pageable pageable);

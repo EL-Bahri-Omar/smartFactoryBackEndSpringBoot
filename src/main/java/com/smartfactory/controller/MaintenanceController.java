@@ -112,9 +112,9 @@ public class MaintenanceController {
     }
 
     /**
-     * Assigne un technicien à une intervention (US43, Section 6.1).
+     * Assigne un ou plusieurs techniciens à une intervention (US43, Section 6.1).
      */
-    @PutMapping("/{id}/assign")
+    @RequestMapping(value = "/{id}/assign", method = {RequestMethod.PUT, RequestMethod.POST})
     @PreAuthorize("hasAnyRole('RESPONSABLE_INDUSTRIEL', 'ADMIN') or (hasAuthority('MAINTENANCE_WRITE') and !hasRole('TECHNICIAN') and !hasRole('OPERATOR'))")
     public ResponseEntity<MaintenanceIntervention> assignTechnician(
             @PathVariable String id,
@@ -122,7 +122,12 @@ public class MaintenanceController {
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
         String assignedBy = currentUser != null ? currentUser.getUsername() : "ANONYMOUS";
-        MaintenanceIntervention updated = interventionService.assignTechnician(id, request.getTechnicianId(), assignedBy);
+        MaintenanceIntervention updated;
+        if (request.getTechnicianIds() != null && !request.getTechnicianIds().isEmpty()) {
+            updated = interventionService.assignTechnicians(id, request.getTechnicianIds(), assignedBy);
+        } else {
+            updated = interventionService.assignTechnician(id, request.getTechnicianId(), assignedBy);
+        }
         return ResponseEntity.ok(updated);
     }
 
