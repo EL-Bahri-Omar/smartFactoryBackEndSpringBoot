@@ -306,9 +306,9 @@ public class MaintenanceInterventionService {
      * Modification des informations de gestion et planification (Section 6.2).
      */
     public MaintenanceIntervention updateIntervention(String interventionId, com.smartfactory.dto.InterventionUpdateRequest request, String updatedBy, com.smartfactory.security.UserPrincipal currentUser) {
-        if (currentUser != null && (currentUser.getRole() == Role.TECHNICIAN || currentUser.getRole() == Role.OPERATOR)) {
+        if (currentUser != null && currentUser.getRole() == Role.OPERATOR) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                    "Accès refusé : Seul le rôle RESPONSABLE_INDUSTRIEL est autorisé à modifier les informations de gestion");
+                    "Accès refusé : Seul le rôle TECHNICIEN est autorisé à modifier les informations de gestion");
         }
 
         MaintenanceIntervention intervention = getInterventionById(interventionId);
