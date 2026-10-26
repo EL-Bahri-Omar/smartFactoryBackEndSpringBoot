@@ -18,25 +18,22 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
 /**
  * Service de gestion intégrale des notifications multi-canaux (in-app, WebSocket temps réel, et push FCM).
- *
- * Fonctionnalités couvertes :
- * - Stockage et cycle de vie des notifications persistées dans MongoDB.
- * - Gestion du champ strict interventionId pour les interventions de maintenance.
- * - Notifications d'alertes (WARNING, CRITICAL) dédupliquées sans spam.
- * - Notifications de groupes : ajout et retrait d'un opérateur avec notification push.
- * - Notifications d'interventions : modification par un technicien et complétion adressées au responsable créateur.
- * - Découplage complet de l'envoi push via PushNotificationService (mode simulation si FCM non configuré).
- * - Isolation stricte par utilisateur : consultation, comptage et marquage comme lu sécurisés.
  */
 @Service
 public class NotificationService {
 
     private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
+
+    /** Format d'affichage des dates dans le corps des notifications. */
+    private static final DateTimeFormatter NOTIFICATION_DATE_FORMAT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault());
 
     private final DeviceTokenRepository deviceTokenRepository;
     private final NotificationRepository notificationRepository;
@@ -55,6 +52,19 @@ public class NotificationService {
         this.realtimeMessageService = realtimeMessageService;
         this.pushNotificationService = pushNotificationService;
     }
+
+    // ---------------------------------------------------------------------
+    // Helpers
+    // ---------------------------------------------------------------------
+
+    private static String formatDateTime(Instant instant) {
+        Instant value = instant != null ? instant : Instant.now();
+        return NOTIFICATION_DATE_FORMAT.format(value);
+    }
+
+    // ---------------------------------------------------------------------
+    // Gestion des tokens
+    // ---------------------------------------------------------------------
 
     /**
      * Enregistre ou met à jour le token de notification d'un terminal pour un utilisateur.
@@ -101,6 +111,10 @@ public class NotificationService {
         }
     }
 
+    // ---------------------------------------------------------------------
+    // Alertes
+    // ---------------------------------------------------------------------
+
     /**
      * Déclenche l'envoi de notification lors d'une transition d'alerte (WARNING, CRITICAL).
      */
@@ -118,8 +132,9 @@ public class NotificationService {
                 .collect(Collectors.toList());
 
         String icon = "CRITICAL".equals(severity) ? "🚨" : ("HIGH".equals(severity) ? "⚠️" : "🟡");
-        String title = icon + " ALERTE " + severity + " - Machine " + (alert.getMachineCode() != null ? alert.getMachineCode() : alert.getMachineId());
-        String body = alert.getMessage() != null ? alert.getMessage() : ("Dépassement de seuil détecté : valeur " + alert.getValue());
+        String title = icon + " ALERT " + severity + " - Machine "
+                + (alert.getMachineCode() != null ? alert.getMachineCode() : alert.getMachineId());
+        String body = alert.getMessage() != null ? alert.getMessage() : ("Threshold exceeded: value " + alert.getValue());
         String notifType = "ALERT_" + severity;
 
         Map<String, Object> dataPayload = new LinkedHashMap<>();
@@ -176,6 +191,10 @@ public class NotificationService {
         }
     }
 
+    // ---------------------------------------------------------------------
+    // Groupes d'opérateurs (Exigence 4)
+    // ---------------------------------------------------------------------
+
     /**
      * Notifie un opérateur lors de son ajout à un groupe d'opérateurs (Exigence 4).
      */
@@ -191,8 +210,8 @@ public class NotificationService {
         String canonicalUserId = operator != null ? operator.getId() : operatorId;
         String displayName = StringUtils.hasText(groupName) ? groupName : groupId;
 
-        String notifTitle = "👥 Affectation au groupe : " + displayName;
-        String notifBody = "Vous avez été ajouté au groupe d'opérateurs \"" + displayName + "\".";
+        String notifTitle = "👥 Added to group: " + displayName;
+        String notifBody = "You have been added to the operator group \"" + displayName + "\".";
         String notifType = "GROUP_MEMBER_ADDED";
 
         Map<String, Object> data = new LinkedHashMap<>();
@@ -241,8 +260,8 @@ public class NotificationService {
         String canonicalUserId = operator != null ? operator.getId() : operatorId;
         String displayName = StringUtils.hasText(groupName) ? groupName : groupId;
 
-        String notifTitle = "👥 Retrait du groupe : " + displayName;
-        String notifBody = "Vous avez été retiré du groupe d'opérateurs \"" + displayName + "\".";
+        String notifTitle = "👥 Removed from group: " + displayName;
+        String notifBody = "You have been removed from the operator group \"" + displayName + "\".";
         String notifType = "GROUP_MEMBER_REMOVED";
 
         Map<String, Object> data = new LinkedHashMap<>();
@@ -275,8 +294,20 @@ public class NotificationService {
         log.info("Notification de retrait de groupe envoyée à l'opérateur [{}] pour le groupe [{}]", canonicalUserId, displayName);
     }
 
+    // ---------------------------------------------------------------------
+    // Interventions (Exigence 5 & 6)
+    // ---------------------------------------------------------------------
+
     /**
      * Notifie un technicien lors de son affectation à une intervention (Exigence 5 & 6).
+     *
+     * <p>Format de la notification :
+     * <pre>
+     * 🔧 New intervention assigned: &lt;title&gt;
+     * Priority : HIGH
+     * Machine : CNC-01 | Type : PREVENTIVE
+     * Assigned at 2025-01-15 14:32
+     * </pre>
      */
     public void notifyMaintenanceAssigned(String technicianId, String interventionId, String title,
                                           String machineCode, String type, String subtype,
@@ -298,28 +329,21 @@ public class NotificationService {
             return;
         }
 
-        String notifTitle = "🔧 Nouvelle intervention assignée : " + (title != null ? title : "Intervention");
-        StringBuilder bodyBuilder = new StringBuilder();
-        if (StringUtils.hasText(machineCode)) {
-            bodyBuilder.append("Machine : ").append(machineCode).append(" | ");
-        }
-        if (StringUtils.hasText(type)) {
-            bodyBuilder.append("Type : ").append(type);
-            if (StringUtils.hasText(subtype)) {
-                bodyBuilder.append(" (").append(subtype).append(")");
-            }
-            bodyBuilder.append(" | ");
-        }
-        if (StringUtils.hasText(priority)) {
-            bodyBuilder.append("Priorité : ").append(priority).append(" | ");
-        }
-        if (assignedAt != null) {
-            bodyBuilder.append("Affectée le : ").append(assignedAt.toString());
-        } else {
-            bodyBuilder.append("Affectée le : ").append(Instant.now().toString());
-        }
+        // Titre en texte normal (plus de caractères Unicode math-bold pour éviter les "????")
+        String notifTitle = "🔧 New intervention assigned: " + (title != null ? title : "Intervention");
 
-        String notifBody = bodyBuilder.toString();
+        String priorityLabel = StringUtils.hasText(priority) ? priority.toUpperCase() : "NORMAL";
+        String machineLabel = StringUtils.hasText(machineCode) ? machineCode : "Unknown machine";
+        String typeLabel = StringUtils.hasText(type)
+                ? (StringUtils.hasText(subtype) ? type + " (" + subtype + ")" : type)
+                : "Unspecified type";
+
+        // Corps en texte normal
+        String notifBody = "Priority : " + priorityLabel
+                + "\n" + "Machine : " + machineLabel
+                + " | " + "Type : " + typeLabel
+                + "\n" + "Assigned at " + formatDateTime(assignedAt);
+
         String notifType = "MAINTENANCE_ASSIGNED";
 
         Map<String, Object> data = new LinkedHashMap<>();
@@ -384,9 +408,9 @@ public class NotificationService {
                 .orElse(null);
 
         String canonicalUserId = previousTech != null ? previousTech.getId() : previousTechnicianId;
-        String notifTitle = "ℹ️ Intervention réassignée : " + (title != null ? title : "Intervention");
-        String notifBody = "L'intervention " + (title != null ? title : "") + " a été réassignée"
-                + (StringUtils.hasText(newTechnicianName) ? " à " + newTechnicianName : "") + ".";
+        String notifTitle = "ℹ️ Intervention reassigned: " + (title != null ? title : "Intervention");
+        String notifBody = "The intervention \"" + (title != null ? title : interventionId) + "\" has been reassigned"
+                + (StringUtils.hasText(newTechnicianName) ? " to " + newTechnicianName : "") + ".";
         String notifType = "MAINTENANCE_REASSIGNED";
 
         Map<String, Object> data = new LinkedHashMap<>();
@@ -438,13 +462,13 @@ public class NotificationService {
                 .orElse(null);
 
         String canonicalUserId = manager != null ? manager.getId() : creatorManagerId;
-        String techDisplayName = StringUtils.hasText(technicianName) ? technicianName : (technicianId != null ? technicianId : "Un technicien");
+        String techDisplayName = StringUtils.hasText(technicianName) ? technicianName : (technicianId != null ? technicianId : "A technician");
 
-        String notifTitle = "🛠️ Intervention modifiée par " + techDisplayName;
-        String notifBody = "Le technicien " + techDisplayName + " a mis à jour l'intervention \""
+        String notifTitle = "🛠️ Intervention updated by " + techDisplayName;
+        String notifBody = "Technician " + techDisplayName + " updated the intervention \""
                 + (title != null ? title : interventionId) + "\""
                 + (StringUtils.hasText(machineCode) ? " (machine " + machineCode + ")" : "")
-                + (StringUtils.hasText(details) ? " : " + details : ".");
+                + (StringUtils.hasText(details) ? ": " + details : ".");
         String notifType = "MAINTENANCE_UPDATED";
 
         Map<String, Object> data = new LinkedHashMap<>();
@@ -496,13 +520,13 @@ public class NotificationService {
                 .orElse(null);
 
         String canonicalUserId = manager != null ? manager.getId() : creatorManagerId;
-        String techDisplayName = StringUtils.hasText(technicianName) ? technicianName : (technicianId != null ? technicianId : "Le technicien");
+        String techDisplayName = StringUtils.hasText(technicianName) ? technicianName : (technicianId != null ? technicianId : "The technician");
 
-        String notifTitle = "✅ Intervention terminée : " + (title != null ? title : "Intervention");
-        String notifBody = "L'intervention \"" + (title != null ? title : interventionId) + "\" a été terminée par "
+        String notifTitle = "✅ Intervention completed: " + (title != null ? title : "Intervention");
+        String notifBody = "The intervention \"" + (title != null ? title : interventionId) + "\" was completed by "
                 + techDisplayName
                 + (StringUtils.hasText(machineCode) ? " (machine " + machineCode + ")." : ".")
-                + (StringUtils.hasText(closureNotes) ? " Notes : " + closureNotes : "");
+                + (StringUtils.hasText(closureNotes) ? " Notes: " + closureNotes : "");
         String notifType = "MAINTENANCE_COMPLETED";
 
         Map<String, Object> data = new LinkedHashMap<>();
@@ -537,6 +561,10 @@ public class NotificationService {
         log.info("Notification de complétion d'intervention envoyée au responsable [{}] pour [{}] par [{}]",
                 canonicalUserId, interventionId, techDisplayName);
     }
+
+    // ---------------------------------------------------------------------
+    // Consultation & lecture (Exigence 3)
+    // ---------------------------------------------------------------------
 
     /**
      * Récupère les notifications paginées de l'utilisateur authentifié (Exigence 3).
