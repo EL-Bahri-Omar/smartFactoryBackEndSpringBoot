@@ -56,7 +56,7 @@ public class MaintenanceController {
      * Réservé au RESPONSABLE_INDUSTRIEL (et ADMIN).
      */
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('RESPONSABLE_INDUSTRIEL', 'ADMIN') or (hasAuthority('MAINTENANCE_WRITE') and !hasRole('TECHNICIAN') and !hasRole('OPERATOR'))")
+    @PreAuthorize("hasAnyRole('RESPONSABLE_INDUSTRIEL', 'ADMIN') or (hasAuthority('MAINTENANCE_WRITE') and !hasRole('OPERATOR'))")
     public ResponseEntity<MaintenanceIntervention> updateIntervention(
             @PathVariable String id,
             @RequestBody MaintenanceIntervention request,
