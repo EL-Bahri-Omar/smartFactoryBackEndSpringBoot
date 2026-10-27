@@ -35,6 +35,8 @@ public interface AlertRepository extends MongoRepository<Alert, String> {
 
     java.util.Optional<Alert> findFirstByAnomalyId(String anomalyId);
 
+    List<Alert> findByMachineIdAndStatus(String machineId, String status);
+
     long countByStatus(String status);
 
     long countByMachineIdAndStatus(String machineId, String status);

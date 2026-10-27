@@ -1,11 +1,9 @@
 package com.smartfactory.controller;
 
-import com.smartfactory.dto.DeviceTokenRequest;
 import com.smartfactory.entity.AppNotification;
 import com.smartfactory.entity.DeviceToken;
 import com.smartfactory.security.UserPrincipal;
 import com.smartfactory.service.NotificationService;
-import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -47,7 +45,7 @@ public class NotificationController {
     @PostMapping("/tokens")
     @PreAuthorize("isAuthenticated()")
     public ResponseEntity<DeviceToken> registerDeviceToken(
-            @Valid @RequestBody DeviceTokenRequest request,
+            @RequestBody DeviceToken request,
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
         String userId = getUserId(currentUser);

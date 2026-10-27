@@ -1,7 +1,5 @@
 package com.smartfactory.controller;
 
-import com.smartfactory.dto.UpdatePermissionsRequest;
-import com.smartfactory.dto.UserPermissionsDto;
 import com.smartfactory.entity.User;
 import com.smartfactory.security.Role;
 import com.smartfactory.security.UserPrincipal;
@@ -103,8 +101,8 @@ public class UserController {
      */
     @GetMapping("/{id}/permissions")
     @PreAuthorize("hasAuthority('USER_READ')")
-    public ResponseEntity<UserPermissionsDto> getUserPermissions(@PathVariable String id) {
-        UserPermissionsDto dto = userService.getUserPermissions(id);
+    public ResponseEntity<Map<String, Object>> getUserPermissions(@PathVariable String id) {
+        Map<String, Object> dto = userService.getUserPermissions(id);
         return ResponseEntity.ok(dto);
     }
 
@@ -113,10 +111,10 @@ public class UserController {
      */
     @PutMapping("/{id}/permissions")
     @PreAuthorize("hasAuthority('USER_PERMISSIONS_MANAGE')")
-    public ResponseEntity<UserPermissionsDto> updateUserPermissions(
+    public ResponseEntity<Map<String, Object>> updateUserPermissions(
             @PathVariable String id,
-            @RequestBody UpdatePermissionsRequest request) {
-        UserPermissionsDto updated = userService.updateUserPermissions(id, request);
+            @RequestBody Map<String, Object> request) {
+        Map<String, Object> updated = userService.updateUserPermissions(id, request);
         return ResponseEntity.ok(updated);
     }
 

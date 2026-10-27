@@ -1,8 +1,7 @@
 package com.smartfactory.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.smartfactory.dto.RoleCreateRequest;
-import com.smartfactory.dto.RoleUpdateRequest;
+import com.smartfactory.entity.RoleDocument;
 import com.smartfactory.entity.User;
 import com.smartfactory.repository.RoleRepository;
 import com.smartfactory.repository.UserRepository;
@@ -97,10 +96,11 @@ public class RoleControllerTest {
     @Test
     @DisplayName("Part C: Admin can create a custom dynamic role with assigned privileges")
     void testCreateCustomRole() throws Exception {
-        RoleCreateRequest request = new RoleCreateRequest(
+        RoleDocument request = new RoleDocument(
                 "QUALITY_AUDITOR",
                 "Responsable du contrôle qualité des machines et de l'historique",
-                Set.of("MACHINE_READ", "READINGS_READ", "DASHBOARD_READ")
+                Set.of("MACHINE_READ", "READINGS_READ", "DASHBOARD_READ"),
+                false
         );
 
         mockMvc.perform(post("/api/roles")
@@ -119,10 +119,11 @@ public class RoleControllerTest {
     @Test
     @DisplayName("Part C: Unauthorized operator without ROLE_CREATE cannot create a role (403 Forbidden)")
     void testOperatorCannotCreateRole() throws Exception {
-        RoleCreateRequest request = new RoleCreateRequest(
+        RoleDocument request = new RoleDocument(
                 "FORBIDDEN_ROLE",
                 "Tentative de création sans privilège",
-                Set.of("MACHINE_READ")
+                Set.of("MACHINE_READ"),
+                false
         );
 
         mockMvc.perform(post("/api/roles")
@@ -135,14 +136,14 @@ public class RoleControllerTest {
     @Test
     @DisplayName("Part C: Duplicate role name is rejected (409 Conflict)")
     void testDuplicateRoleNameRejected() throws Exception {
-        RoleCreateRequest req1 = new RoleCreateRequest("TEST_DUPLICATE", "Desc 1", Set.of("MACHINE_READ"));
+        RoleDocument req1 = new RoleDocument("TEST_DUPLICATE", "Desc 1", Set.of("MACHINE_READ"), false);
         mockMvc.perform(post("/api/roles")
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req1)))
                 .andExpect(status().isCreated());
 
-        RoleCreateRequest req2 = new RoleCreateRequest("TEST_DUPLICATE", "Desc 2", Set.of("MACHINE_READ"));
+        RoleDocument req2 = new RoleDocument("TEST_DUPLICATE", "Desc 2", Set.of("MACHINE_READ"), false);
         mockMvc.perform(post("/api/roles")
                         .header("Authorization", "Bearer " + adminToken)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -153,14 +154,16 @@ public class RoleControllerTest {
     @Test
     @DisplayName("Part C: Admin can update role privileges dynamically")
     void testUpdateRolePrivileges() throws Exception {
-        RoleCreateRequest createReq = new RoleCreateRequest(
-                "ANALYST", "Analyste de performance", Set.of("MACHINE_READ")
+        RoleDocument createReq = new RoleDocument(
+                "ANALYST", "Analyste de performance", Set.of("MACHINE_READ"), false
         );
         roleService.createRole(createReq);
 
-        RoleUpdateRequest updateReq = new RoleUpdateRequest(
+        RoleDocument updateReq = new RoleDocument(
+                null,
                 "Analyste senior mis à jour",
-                Set.of("MACHINE_READ", "READINGS_READ", "DASHBOARD_READ", "ALERT_READ")
+                Set.of("MACHINE_READ", "READINGS_READ", "DASHBOARD_READ", "ALERT_READ"),
+                false
         );
 
         mockMvc.perform(put("/api/roles/ANALYST")
@@ -187,7 +190,7 @@ public class RoleControllerTest {
     @Test
     @DisplayName("Part C: Custom role in use by active users cannot be deleted (409 Conflict)")
     void testRoleInUseCannotBeDeleted() throws Exception {
-        roleService.createRole(new RoleCreateRequest("DISPATCHER", "Répartiteur", Set.of("MACHINE_READ")));
+        roleService.createRole(new RoleDocument("DISPATCHER", "Répartiteur", Set.of("MACHINE_READ"), false));
 
         // Assigner ce rôle personnalisé à un utilisateur
         User dispatcherUser = new User("John", "Dispatcher", "dispatcher@smartfactory.com",
@@ -203,7 +206,7 @@ public class RoleControllerTest {
     @Test
     @DisplayName("Part C: Custom role not in use can be deleted cleanly")
     void testDeleteUnusedCustomRole() throws Exception {
-        roleService.createRole(new RoleCreateRequest("TEMPORARY_ROLE", "Rôle temporaire", Set.of("MACHINE_READ")));
+        roleService.createRole(new RoleDocument("TEMPORARY_ROLE", "Rôle temporaire", Set.of("MACHINE_READ"), false));
 
         mockMvc.perform(delete("/api/roles/TEMPORARY_ROLE")
                         .header("Authorization", "Bearer " + adminToken))

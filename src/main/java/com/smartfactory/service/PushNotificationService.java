@@ -5,7 +5,9 @@ import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.messaging.*;
 import com.smartfactory.entity.DeviceToken;
+import com.smartfactory.entity.User;
 import com.smartfactory.repository.DeviceTokenRepository;
+import com.smartfactory.repository.UserRepository;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,6 +19,7 @@ import org.springframework.util.StringUtils;
 
 import java.io.InputStream;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 /**
@@ -35,7 +38,14 @@ public class PushNotificationService {
     private static final Logger log = LoggerFactory.getLogger(PushNotificationService.class);
 
     private final DeviceTokenRepository deviceTokenRepository;
+    private final UserRepository userRepository;
     private final ResourceLoader resourceLoader;
+
+    /**
+     * Cache d'idempotence mémoire éphémère pour éviter tout envoi en double
+     * d'une même notification logique à un utilisateur dans une fenêtre de 60 secondes.
+     */
+    private final Map<String, Instant> sentEventsCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     @Value("${app.firebase.enabled:false}")
     private boolean firebaseEnabled;
@@ -46,8 +56,10 @@ public class PushNotificationService {
     private boolean firebaseInitialized = false;
 
     public PushNotificationService(DeviceTokenRepository deviceTokenRepository,
+                                   UserRepository userRepository,
                                    ResourceLoader resourceLoader) {
         this.deviceTokenRepository = deviceTokenRepository;
+        this.userRepository = userRepository;
         this.resourceLoader = resourceLoader;
     }
 
@@ -99,33 +111,77 @@ public class PushNotificationService {
     }
 
     /**
-     * Envoie une notification push vers tous les appareils actifs d'un utilisateur.
+     * Envoie une notification push vers tous les appareils actifs d'un utilisateur
+     * après vérification stricte de ses préférences et déduplication idempotente (Sections 4 & 5).
      */
     public void sendPushToUser(String userId, String title, String body, Map<String, String> data) {
         if (!StringUtils.hasText(userId)) {
             return;
         }
 
-        List<DeviceToken> activeTokens = deviceTokenRepository.findByUserIdAndActiveTrue(userId.trim());
+        String cleanUserId = userId.trim();
+
+        // 1. Respect strict des préférences utilisateur (Section 5)
+        User recipientUser = userRepository.findById(cleanUserId)
+                .or(() -> userRepository.findByEmail(cleanUserId))
+                .orElse(null);
+
+        if (recipientUser != null && !recipientUser.isNotificationsEnabled()) {
+            log.info("[PUSH DÉSACTIVÉ] L'utilisateur [{}] a désactivé les notifications dans ses préférences. Envoi push ignoré.", cleanUserId);
+            return;
+        }
+
+        // 2. Déduplication et idempotence au niveau applicatif (Section 4)
+        String eventKey = data != null ? data.getOrDefault("eventId",
+                data.getOrDefault("alertId",
+                        data.getOrDefault("interventionId",
+                                data.getOrDefault("type", title != null ? title : "default_event")))) : "default_event";
+        String idempotencyKey = cleanUserId + ":" + eventKey;
+
+        Instant now = Instant.now();
+        Instant lastSent = sentEventsCache.get(idempotencyKey);
+        if (lastSent != null && ChronoUnit.SECONDS.between(lastSent, now) < 60) {
+            log.debug("[PUSH DÉDUPLIQUÉ] Notification [{}] déjà transmise à l'utilisateur [{}] il y a moins de 60s. Émission ignorée.",
+                    eventKey, cleanUserId);
+            return;
+        }
+        sentEventsCache.put(idempotencyKey, now);
+
+        // Nettoyage périodique du cache d'idempotence si nécessaire
+        if (sentEventsCache.size() > 5000) {
+            sentEventsCache.entrySet().removeIf(entry -> ChronoUnit.MINUTES.between(entry.getValue(), now) > 5);
+        }
+
+        // 3. Recherche et déduplication des jetons actifs du destinataire
+        List<DeviceToken> activeTokens = deviceTokenRepository.findByUserIdAndActiveTrue(cleanUserId);
         if (activeTokens.isEmpty()) {
             // Chercher par userId direct au cas où active est null dans d'anciens documents
-            activeTokens = deviceTokenRepository.findByUserId(userId.trim()).stream()
-                    .filter(dt -> dt.isActive())
+            activeTokens = deviceTokenRepository.findByUserId(cleanUserId).stream()
+                    .filter(DeviceToken::isActive)
                     .toList();
         }
 
         if (activeTokens.isEmpty()) {
-            log.debug("Aucun terminal push actif pour l'utilisateur [{}]", userId);
+            log.debug("Aucun terminal push actif pour l'utilisateur [{}]", cleanUserId);
             return;
         }
 
+        // Dédupliquer les jetons uniques pour éviter l'envoi répété vers le même terminal physique
+        Set<String> uniqueTokens = new HashSet<>();
         for (DeviceToken dt : activeTokens) {
-            sendPushToDeviceToken(dt, title, body, data);
+            if (StringUtils.hasText(dt.getToken()) && uniqueTokens.add(dt.getToken().trim())) {
+                sendPushToDeviceToken(dt, title, body, data);
+            }
         }
     }
 
+    public void sendPushNotification(String userId, String title, String body, Map<String, String> data) {
+        sendPushToUser(userId, title, body, data);
+    }
+
     /**
-     * Envoie la notification push vers un terminal spécifique.
+     * Envoie la notification push vers un terminal spécifique avec tag de regroupement
+     * Android/iOS afin d'éviter l'affichage de notifications en double (Section 4).
      */
     public boolean sendPushToDeviceToken(DeviceToken deviceToken, String title, String body, Map<String, String> data) {
         if (deviceToken == null || !StringUtils.hasText(deviceToken.getToken())) {
@@ -142,6 +198,11 @@ public class PushNotificationService {
             });
         }
 
+        String eventTag = data != null ? data.getOrDefault("eventId",
+                data.getOrDefault("alertId",
+                        data.getOrDefault("interventionId",
+                                data.getOrDefault("type", "smartfactory_event")))) : "smartfactory_event";
+
         if (firebaseInitialized) {
             try {
                 Notification notification = Notification.builder()
@@ -154,19 +215,22 @@ public class PushNotificationService {
                         .setNotification(notification)
                         .putAllData(sanitizedData);
 
-                // Options spécifiques selon deviceType
+                // Options spécifiques selon deviceType avec collapseKey et Tag uniques
                 if ("ANDROID".equalsIgnoreCase(deviceToken.getDeviceType())) {
                     messageBuilder.setAndroidConfig(AndroidConfig.builder()
                             .setPriority(AndroidConfig.Priority.HIGH)
+                            .setCollapseKey(eventTag)
                             .setNotification(AndroidNotification.builder()
                                     .setChannelId("default")
                                     .setSound("default")
+                                    .setTag(eventTag)
                                     .build())
                             .build());
                 } else if ("IOS".equalsIgnoreCase(deviceToken.getDeviceType())) {
                     messageBuilder.setApnsConfig(ApnsConfig.builder()
                             .setAps(Aps.builder()
                                     .setSound("default")
+                                    .setThreadId(eventTag)
                                     .build())
                             .build());
                 }

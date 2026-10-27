@@ -1,9 +1,6 @@
 package com.smartfactory.controller;
 
-import com.smartfactory.dto.ModuleCreateRequest;
-import com.smartfactory.dto.ModulePrivilegeCreateRequest;
-import com.smartfactory.dto.ModuleResponseDto;
-import com.smartfactory.dto.ModuleUpdateRequest;
+import com.smartfactory.entity.FunctionalModule;
 import com.smartfactory.entity.ModulePrivilege;
 import com.smartfactory.service.FunctionalModuleService;
 import jakarta.validation.Valid;
@@ -33,7 +30,7 @@ public class FunctionalModuleController {
      */
     @GetMapping
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_READ', 'USER_READ')")
-    public ResponseEntity<List<ModuleResponseDto>> getAllModules() {
+    public ResponseEntity<List<FunctionalModule>> getAllModules() {
         return ResponseEntity.ok(moduleService.getAllModules());
     }
 
@@ -43,7 +40,7 @@ public class FunctionalModuleController {
      */
     @GetMapping("/{idOrCode}")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_READ', 'USER_READ')")
-    public ResponseEntity<ModuleResponseDto> getModule(@PathVariable String idOrCode) {
+    public ResponseEntity<FunctionalModule> getModule(@PathVariable String idOrCode) {
         return ResponseEntity.ok(moduleService.getModule(idOrCode));
     }
 
@@ -53,8 +50,8 @@ public class FunctionalModuleController {
      */
     @PostMapping
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_CREATE')")
-    public ResponseEntity<ModuleResponseDto> createModule(@Valid @RequestBody ModuleCreateRequest request) {
-        ModuleResponseDto created = moduleService.createModule(request);
+    public ResponseEntity<FunctionalModule> createModule(@Valid @RequestBody FunctionalModule request) {
+        FunctionalModule created = moduleService.createModule(request);
         return new ResponseEntity<>(created, HttpStatus.CREATED);
     }
 
@@ -64,9 +61,9 @@ public class FunctionalModuleController {
      */
     @PutMapping("/{idOrCode}")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_UPDATE')")
-    public ResponseEntity<ModuleResponseDto> updateModule(
+    public ResponseEntity<FunctionalModule> updateModule(
             @PathVariable String idOrCode,
-            @RequestBody ModuleUpdateRequest request
+            @RequestBody FunctionalModule request
     ) {
         return ResponseEntity.ok(moduleService.updateModule(idOrCode, request));
     }
@@ -98,11 +95,11 @@ public class FunctionalModuleController {
      */
     @PostMapping("/{idOrCode}/privileges")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_UPDATE')")
-    public ResponseEntity<ModuleResponseDto> addPrivilege(
+    public ResponseEntity<FunctionalModule> addPrivilege(
             @PathVariable String idOrCode,
-            @Valid @RequestBody ModulePrivilegeCreateRequest request
+            @Valid @RequestBody ModulePrivilege request
     ) {
-        ModuleResponseDto updated = moduleService.addPrivilegeToModule(idOrCode, request);
+        FunctionalModule updated = moduleService.addPrivilegeToModule(idOrCode, request);
         return new ResponseEntity<>(updated, HttpStatus.CREATED);
     }
 
@@ -112,7 +109,7 @@ public class FunctionalModuleController {
      */
     @DeleteMapping("/{idOrCode}/privileges/{privilegeCode}")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_UPDATE')")
-    public ResponseEntity<ModuleResponseDto> removePrivilege(
+    public ResponseEntity<FunctionalModule> removePrivilege(
             @PathVariable String idOrCode,
             @PathVariable String privilegeCode
     ) {

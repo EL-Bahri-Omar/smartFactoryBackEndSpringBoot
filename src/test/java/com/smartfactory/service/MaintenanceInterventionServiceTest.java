@@ -1,6 +1,5 @@
 package com.smartfactory.service;
 
-import com.smartfactory.dto.*;
 import com.smartfactory.entity.*;
 import com.smartfactory.repository.*;
 import com.smartfactory.security.Role;
@@ -85,7 +84,7 @@ class MaintenanceInterventionServiceTest {
     @Test
     @DisplayName("US42 - Rejects PREVENTIVE maintenance if preventiveSubtype is missing")
     void testPreventiveRequiresSubtype() {
-        InterventionCreateRequest req = new InterventionCreateRequest();
+        MaintenanceIntervention req = new MaintenanceIntervention();
         req.setMachineId("CNC-024");
         req.setTitle("Maintenance préventive semestrielle");
         req.setType(MaintenanceType.PREVENTIVE);
@@ -99,7 +98,7 @@ class MaintenanceInterventionServiceTest {
     @Test
     @DisplayName("US42 - Rejects CORRECTIVE maintenance if preventiveSubtype is provided")
     void testCorrectiveRejectsPreventiveSubtype() {
-        InterventionCreateRequest req = new InterventionCreateRequest();
+        MaintenanceIntervention req = new MaintenanceIntervention();
         req.setMachineId("CNC-024");
         req.setTitle("Remplacement courroie rompue");
         req.setType(MaintenanceType.CORRECTIVE);
@@ -113,7 +112,7 @@ class MaintenanceInterventionServiceTest {
     @Test
     @DisplayName("US42 & US43 - Valid PREVENTIVE SYSTEMATIC intervention created and assigned to technician")
     void testValidInterventionCreationAndAssignment() {
-        InterventionCreateRequest req = new InterventionCreateRequest();
+        MaintenanceIntervention req = new MaintenanceIntervention();
         req.setMachineId("CNC-024");
         req.setTitle("Graissage périodique 500h");
         req.setType(MaintenanceType.PREVENTIVE);
@@ -140,23 +139,25 @@ class MaintenanceInterventionServiceTest {
         when(interventionRepository.findById("interv-1")).thenReturn(Optional.of(interv));
 
         // 1. Ajouter un diagnostic (US45)
-        DiagnosisCreateRequest diagReq = new DiagnosisCreateRequest("Rupture de roulement", "Jeu axial important constaté");
+        MaintenanceDiagnosis diagReq = new MaintenanceDiagnosis("Rupture de roulement", "Jeu axial important constaté", "user-tech-1", "Pierre Martin");
         interventionService.addDiagnosis("interv-1", diagReq, "user-tech-1", "Pierre Martin");
         assertThat(interv.getDiagnoses()).hasSize(1);
         assertThat(interv.getStatus()).isEqualTo(InterventionStatus.IN_PROGRESS);
 
         // 2. Ajouter une action (US46)
-        ActionCreateRequest actReq = new ActionCreateRequest("Remplacement roulement 6205-2RS", "Roulement 6205", 45);
+        MaintenanceAction actReq = new MaintenanceAction("Remplacement roulement 6205-2RS", "user-tech-1", "Pierre Martin", "Roulement 6205", 45);
         interventionService.addAction("interv-1", actReq, "user-tech-1", "Pierre Martin");
         assertThat(interv.getActions()).hasSize(1);
 
         // 3. Ajouter une observation (US47)
-        ObservationCreateRequest obsReq = new ObservationCreateRequest("Vérifier à nouveau la température dans 24h", "OPERATING_CONDITION");
+        MaintenanceObservation obsReq = new MaintenanceObservation("Vérifier à nouveau la température dans 24h", "user-tech-1", "Pierre Martin", "OPERATING_CONDITION");
         interventionService.addObservation("interv-1", obsReq, "user-tech-1", "Pierre Martin");
         assertThat(interv.getObservations()).hasSize(1);
 
         // 4. Clôturer l'intervention (US48)
-        InterventionCloseRequest closeReq = new InterventionCloseRequest("Broche réparée et testée à vide", true);
+        MaintenanceIntervention closeReq = new MaintenanceIntervention();
+        closeReq.setClosureNotes("Broche réparée et testée à vide");
+        closeReq.setRestoreMachineStatus(true);
         MaintenanceIntervention closed = interventionService.closeIntervention("interv-1", closeReq, "Pierre Martin");
 
         assertThat(closed.getStatus()).isEqualTo(InterventionStatus.COMPLETED);

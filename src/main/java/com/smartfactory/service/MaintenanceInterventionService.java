@@ -1,6 +1,5 @@
 package com.smartfactory.service;
 
-import com.smartfactory.dto.*;
 import com.smartfactory.entity.*;
 import com.smartfactory.repository.*;
 import com.smartfactory.security.Role;
@@ -107,7 +106,7 @@ public class MaintenanceInterventionService {
      * Crée une nouvelle intervention de maintenance (US42, Section 6.1).
      * RÈGLE STRICTE : Seul le RESPONSABLE_INDUSTRIEL et l'ADMIN peuvent créer une intervention.
      */
-    public MaintenanceIntervention createIntervention(InterventionCreateRequest request, String currentUsername, com.smartfactory.security.UserPrincipal currentUser) {
+    public MaintenanceIntervention createIntervention(MaintenanceIntervention request, String currentUsername, com.smartfactory.security.UserPrincipal currentUser) {
         if (request == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Requête obligatoire");
         }
@@ -189,7 +188,7 @@ public class MaintenanceInterventionService {
         return saved;
     }
 
-    public MaintenanceIntervention createIntervention(InterventionCreateRequest request, String currentUsername) {
+    public MaintenanceIntervention createIntervention(MaintenanceIntervention request, String currentUsername) {
         return createIntervention(request, currentUsername, null);
     }
 
@@ -305,7 +304,7 @@ public class MaintenanceInterventionService {
     /**
      * Modification des informations de gestion et planification (Section 6.2).
      */
-    public MaintenanceIntervention updateIntervention(String interventionId, com.smartfactory.dto.InterventionUpdateRequest request, String updatedBy, com.smartfactory.security.UserPrincipal currentUser) {
+    public MaintenanceIntervention updateIntervention(String interventionId, MaintenanceIntervention request, String updatedBy, com.smartfactory.security.UserPrincipal currentUser) {
         if (currentUser != null && currentUser.getRole() == Role.OPERATOR) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                     "Accès refusé : Seul le rôle TECHNICIEN est autorisé à modifier les informations de gestion");
@@ -409,7 +408,7 @@ public class MaintenanceInterventionService {
      * Enregistre un diagnostic technique sur l'intervention (US45, Section 6.2).
      * Notifie le responsable créateur (Exigence 5).
      */
-    public MaintenanceIntervention addDiagnosis(String interventionId, DiagnosisCreateRequest request, String techId, String techName, com.smartfactory.security.UserPrincipal currentUser) {
+    public MaintenanceIntervention addDiagnosis(String interventionId, MaintenanceDiagnosis request, String techId, String techName, com.smartfactory.security.UserPrincipal currentUser) {
         MaintenanceIntervention intervention = getInterventionById(interventionId);
         checkTechnicianExecutionAccess(intervention, currentUser, "ajouter un diagnostic sur");
 
@@ -421,7 +420,8 @@ public class MaintenanceInterventionService {
         );
 
         intervention.getDiagnoses().add(diagnosis);
-        if (intervention.getStatus() == InterventionStatus.PENDING || intervention.getStatus() == InterventionStatus.ASSIGNED) {
+        boolean wasNotStarted = (intervention.getStatus() == InterventionStatus.PENDING || intervention.getStatus() == InterventionStatus.ASSIGNED);
+        if (wasNotStarted) {
             intervention.setStatus(InterventionStatus.IN_PROGRESS);
             if (intervention.getStartedAt() == null) {
                 intervention.setStartedAt(Instant.now());
@@ -452,7 +452,7 @@ public class MaintenanceInterventionService {
         return saved;
     }
 
-    public MaintenanceIntervention addDiagnosis(String interventionId, DiagnosisCreateRequest request, String techId, String techName) {
+    public MaintenanceIntervention addDiagnosis(String interventionId, MaintenanceDiagnosis request, String techId, String techName) {
         return addDiagnosis(interventionId, request, techId, techName, null);
     }
 
@@ -460,7 +460,7 @@ public class MaintenanceInterventionService {
      * Enregistre une action réalisée sur l'intervention (US46, Section 6.2).
      * Notifie le responsable créateur (Exigence 5).
      */
-    public MaintenanceIntervention addAction(String interventionId, ActionCreateRequest request, String techId, String techName, com.smartfactory.security.UserPrincipal currentUser) {
+    public MaintenanceIntervention addAction(String interventionId, MaintenanceAction request, String techId, String techName, com.smartfactory.security.UserPrincipal currentUser) {
         MaintenanceIntervention intervention = getInterventionById(interventionId);
         checkTechnicianExecutionAccess(intervention, currentUser, "ajouter une action sur");
 
@@ -473,7 +473,8 @@ public class MaintenanceInterventionService {
         );
 
         intervention.getActions().add(action);
-        if (intervention.getStatus() == InterventionStatus.PENDING || intervention.getStatus() == InterventionStatus.ASSIGNED) {
+        boolean wasNotStarted = (intervention.getStatus() == InterventionStatus.PENDING || intervention.getStatus() == InterventionStatus.ASSIGNED);
+        if (wasNotStarted) {
             intervention.setStatus(InterventionStatus.IN_PROGRESS);
             if (intervention.getStartedAt() == null) {
                 intervention.setStartedAt(Instant.now());
@@ -483,6 +484,10 @@ public class MaintenanceInterventionService {
 
         MaintenanceIntervention saved = interventionRepository.save(intervention);
         log.info("Action ajoutée sur l'intervention [{}] par [{}]", saved.getId(), techName);
+
+        if (wasNotStarted) {
+            notifyResponsibleIndustrialOnStart(saved, techName);
+        }
 
         // Notification vers le responsable créateur (Exigence 5)
         if (StringUtils.hasText(saved.getCreatedBy())) {
@@ -504,7 +509,7 @@ public class MaintenanceInterventionService {
         return saved;
     }
 
-    public MaintenanceIntervention addAction(String interventionId, ActionCreateRequest request, String techId, String techName) {
+    public MaintenanceIntervention addAction(String interventionId, MaintenanceAction request, String techId, String techName) {
         return addAction(interventionId, request, techId, techName, null);
     }
 
@@ -512,7 +517,7 @@ public class MaintenanceInterventionService {
      * Ajoute une observation sur l'intervention (US47, Section 6.2).
      * Notifie le responsable créateur (Exigence 5).
      */
-    public MaintenanceIntervention addObservation(String interventionId, ObservationCreateRequest request, String authorId, String authorName, com.smartfactory.security.UserPrincipal currentUser) {
+    public MaintenanceIntervention addObservation(String interventionId, MaintenanceObservation request, String authorId, String authorName, com.smartfactory.security.UserPrincipal currentUser) {
         MaintenanceIntervention intervention = getInterventionById(interventionId);
         checkTechnicianExecutionAccess(intervention, currentUser, "ajouter une observation sur");
 
@@ -549,7 +554,7 @@ public class MaintenanceInterventionService {
         return saved;
     }
 
-    public MaintenanceIntervention addObservation(String interventionId, ObservationCreateRequest request, String authorId, String authorName) {
+    public MaintenanceIntervention addObservation(String interventionId, MaintenanceObservation request, String authorId, String authorName) {
         return addObservation(interventionId, request, authorId, authorName, null);
     }
 
@@ -557,7 +562,7 @@ public class MaintenanceInterventionService {
      * Clôture formelle d'une intervention de maintenance (US48, Section 6.2).
      * Notifie spécifiquement le responsable créateur (Exigence 5).
      */
-    public MaintenanceIntervention closeIntervention(String interventionId, InterventionCloseRequest request, String closedBy, com.smartfactory.security.UserPrincipal currentUser) {
+    public MaintenanceIntervention closeIntervention(String interventionId, MaintenanceIntervention request, String closedBy, com.smartfactory.security.UserPrincipal currentUser) {
         MaintenanceIntervention intervention = getInterventionById(interventionId);
         checkTechnicianExecutionAccess(intervention, currentUser, "clôturer");
 
@@ -631,8 +636,83 @@ public class MaintenanceInterventionService {
         return saved;
     }
 
-    public MaintenanceIntervention closeIntervention(String interventionId, InterventionCloseRequest request, String closedBy) {
+    public MaintenanceIntervention closeIntervention(String interventionId, MaintenanceIntervention request, String closedBy) {
         return closeIntervention(interventionId, request, closedBy, null);
+    }
+
+    /**
+     * Démarre formellement une intervention de maintenance (Statut IN_PROGRESS).
+     * Notifie immédiatement le responsable industriel (Exigence Section 3).
+     */
+    public MaintenanceIntervention startIntervention(String interventionId, String startedBy, com.smartfactory.security.UserPrincipal currentUser) {
+        MaintenanceIntervention intervention = getInterventionById(interventionId);
+        checkTechnicianExecutionAccess(intervention, currentUser, "démarrer");
+
+        if (intervention.getStatus() == InterventionStatus.COMPLETED) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Impossible de démarrer une intervention déjà clôturée");
+        }
+        if (intervention.getStatus() == InterventionStatus.CANCELLED) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Impossible de démarrer une intervention annulée");
+        }
+
+        boolean wasAlreadyStarted = (intervention.getStatus() == InterventionStatus.IN_PROGRESS);
+        intervention.setStatus(InterventionStatus.IN_PROGRESS);
+        if (intervention.getStartedAt() == null) {
+            intervention.setStartedAt(Instant.now());
+        }
+        intervention.setUpdatedAt(Instant.now());
+
+        // Règle métier : transition de la machine vers MAINTENANCE si applicable
+        if (StringUtils.hasText(intervention.getMachineId())) {
+            machineRepository.findById(intervention.getMachineId()).ifPresent(m -> {
+                if (m.getStatus() != MachineStatus.MAINTENANCE) {
+                    m.setStatus(MachineStatus.MAINTENANCE);
+                    machineRepository.save(m);
+                    log.info("Statut machine [{}] passé à MAINTENANCE suite au démarrage de l'intervention [{}]", m.getCode(), intervention.getId());
+                }
+            });
+        }
+
+        MaintenanceIntervention saved = interventionRepository.save(intervention);
+        log.info("Intervention [{}] démarrée avec succès par [{}]", saved.getId(), startedBy);
+
+        if (!wasAlreadyStarted) {
+            notifyResponsibleIndustrialOnStart(saved, startedBy);
+        }
+
+        return saved;
+    }
+
+    public MaintenanceIntervention startIntervention(String interventionId, String startedBy) {
+        return startIntervention(interventionId, startedBy, null);
+    }
+
+    private void notifyResponsibleIndustrialOnStart(MaintenanceIntervention intervention, String startedBy) {
+        Set<String> recipientIds = new HashSet<>();
+        // 1. Identifier via le créateur de l'intervention
+        if (StringUtils.hasText(intervention.getCreatedBy())) {
+            userRepository.findById(intervention.getCreatedBy())
+                    .or(() -> userRepository.findByEmail(intervention.getCreatedBy()))
+                    .ifPresent(u -> recipientIds.add(u.getId()));
+        }
+
+        // 2. Si non trouvé ou pour garantir la couverture, cibler les responsables industriels actifs
+        if (recipientIds.isEmpty()) {
+            List<User> managers = userRepository.findByRole(Role.RESPONSABLE_INDUSTRIEL);
+            for (User m : managers) {
+                if (m.getStatus() == null || "ACTIVE".equalsIgnoreCase(m.getStatus())) {
+                    recipientIds.add(m.getId());
+                }
+            }
+        }
+
+        for (String targetId : recipientIds) {
+            try {
+                notificationService.notifyInterventionStarted(targetId, intervention, startedBy);
+            } catch (Exception ex) {
+                log.warn("Échec notification démarrage intervention pour manager [{}]: {}", targetId, ex.getMessage());
+            }
+        }
     }
 
     /**

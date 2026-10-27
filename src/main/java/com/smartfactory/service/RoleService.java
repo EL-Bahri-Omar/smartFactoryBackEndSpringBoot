@@ -1,9 +1,6 @@
 package com.smartfactory.service;
 
-import com.smartfactory.dto.PrivilegeDto;
-import com.smartfactory.dto.RoleCreateRequest;
-import com.smartfactory.dto.RoleResponseDto;
-import com.smartfactory.dto.RoleUpdateRequest;
+import com.smartfactory.entity.ModulePrivilege;
 import com.smartfactory.entity.RoleDocument;
 import com.smartfactory.repository.RoleRepository;
 import com.smartfactory.repository.UserRepository;
@@ -42,24 +39,24 @@ public class RoleService {
     /**
      * Liste tous les rôles configurés avec le nombre d'utilisateurs affectés.
      */
-    public List<RoleResponseDto> getAllRoles() {
+    public List<RoleDocument> getAllRoles() {
         return roleRepository.findAll().stream()
-                .map(this::toResponseDto)
+                .map(this::enrichWithUserCount)
                 .collect(Collectors.toList());
     }
 
     /**
      * Récupère un rôle par son identifiant MongoDB ou son nom unique.
      */
-    public RoleResponseDto getRole(String idOrName) {
+    public RoleDocument getRole(String idOrName) {
         RoleDocument doc = findRoleByIdOrName(idOrName);
-        return toResponseDto(doc);
+        return enrichWithUserCount(doc);
     }
 
     /**
      * Crée un nouveau rôle personnalisé avec ses privilèges associés.
      */
-    public RoleResponseDto createRole(RoleCreateRequest request) {
+    public RoleDocument createRole(RoleDocument request) {
         if (request == null || !StringUtils.hasText(request.getName())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR: Le nom du rôle est obligatoire");
         }
@@ -84,13 +81,13 @@ public class RoleService {
         rolePrivilegesCache.put(normalizedName, saved.getPrivileges());
         log.info("Rôle personnalisé créé avec succès: [{}] avec {} privilèges", normalizedName, saved.getPrivileges().size());
 
-        return toResponseDto(saved);
+        return enrichWithUserCount(saved);
     }
 
     /**
      * Met à jour la description et/ou les privilèges d'un rôle existant.
      */
-    public RoleResponseDto updateRole(String idOrName, RoleUpdateRequest request) {
+    public RoleDocument updateRole(String idOrName, RoleDocument request) {
         RoleDocument doc = findRoleByIdOrName(idOrName);
 
         if (request.getDescription() != null) {
@@ -107,7 +104,7 @@ public class RoleService {
         rolePrivilegesCache.put(saved.getName(), saved.getPrivileges());
         log.info("Rôle mis à jour: [{}] ({} privilèges)", saved.getName(), saved.getPrivileges().size());
 
-        return toResponseDto(saved);
+        return enrichWithUserCount(saved);
     }
 
     /**
@@ -136,17 +133,17 @@ public class RoleService {
     /**
      * Liste tous les privilèges disponibles dans le catalogue SmartFactory.
      */
-    public List<PrivilegeDto> getAllAvailablePrivileges() {
+    public List<ModulePrivilege> getAllAvailablePrivileges() {
         return Arrays.stream(Permission.values())
-                .map(p -> new PrivilegeDto(p.getCode(), p.name(), p.getDescription(), p.getCategory()))
-                .sorted(Comparator.comparing(PrivilegeDto::getCategory).thenComparing(PrivilegeDto::getCode))
+                .map(p -> new ModulePrivilege(p.getCode() != null && p.getCode().contains(":") ? p.getCode().substring(p.getCode().indexOf(":") + 1) : p.name(), p.getCode(), p.name(), p.getDescription(), p.getCategory()))
+                .sorted(Comparator.comparing(ModulePrivilege::getCategory, Comparator.nullsLast(Comparator.naturalOrder())).thenComparing(ModulePrivilege::getCode))
                 .collect(Collectors.toList());
     }
 
     /**
      * Attribue des privilèges supplémentaires à un rôle.
      */
-    public RoleResponseDto addPrivilegesToRole(String idOrName, Set<String> privileges) {
+    public RoleDocument addPrivilegesToRole(String idOrName, Set<String> privileges) {
         RoleDocument doc = findRoleByIdOrName(idOrName);
         Set<String> toAdd = validateAndNormalizePrivileges(privileges);
 
@@ -158,13 +155,13 @@ public class RoleService {
         RoleDocument saved = roleRepository.save(doc);
         rolePrivilegesCache.put(saved.getName(), saved.getPrivileges());
         log.info("Privilèges ajoutés au rôle [{}]: {}", saved.getName(), toAdd);
-        return toResponseDto(saved);
+        return enrichWithUserCount(saved);
     }
 
     /**
      * Retire un privilège d'un rôle.
      */
-    public RoleResponseDto removePrivilegeFromRole(String idOrName, String privilegeCode) {
+    public RoleDocument removePrivilegeFromRole(String idOrName, String privilegeCode) {
         RoleDocument doc = findRoleByIdOrName(idOrName);
         if (!StringUtils.hasText(privilegeCode)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Privilege code is required");
@@ -179,7 +176,7 @@ public class RoleService {
         RoleDocument saved = roleRepository.save(doc);
         rolePrivilegesCache.put(saved.getName(), saved.getPrivileges());
         log.info("Privilège [{}] retiré du rôle [{}]", normalizedCode, saved.getName());
-        return toResponseDto(saved);
+        return enrichWithUserCount(saved);
     }
 
     /**
@@ -323,17 +320,11 @@ public class RoleService {
         return count;
     }
 
-    private RoleResponseDto toResponseDto(RoleDocument doc) {
-        long count = countUsersWithRole(doc.getName());
-        return new RoleResponseDto(
-                doc.getId(),
-                doc.getName(),
-                doc.getDescription(),
-                doc.getPrivileges(),
-                doc.isSystemRole(),
-                count,
-                doc.getCreatedAt(),
-                doc.getUpdatedAt()
-        );
+    private RoleDocument enrichWithUserCount(RoleDocument doc) {
+        if (doc != null) {
+            long count = countUsersWithRole(doc.getName());
+            doc.setUserCount(count);
+        }
+        return doc;
     }
 }

@@ -1,19 +1,12 @@
 package com.smartfactory.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.smartfactory.dto.InterventionAssignRequest;
-import com.smartfactory.dto.InterventionCreateRequest;
 import com.smartfactory.entity.*;
+import com.smartfactory.repository.DeviceTokenRepository;
 import com.smartfactory.repository.MachineRepository;
 import com.smartfactory.repository.MaintenanceInterventionRepository;
 import com.smartfactory.repository.NotificationRepository;
 import com.smartfactory.repository.UserRepository;
-import com.smartfactory.dto.DiagnosisCreateRequest;
-import com.smartfactory.dto.ActionCreateRequest;
-import com.smartfactory.dto.ObservationCreateRequest;
-import com.smartfactory.dto.InterventionCloseRequest;
-import com.smartfactory.dto.DeviceTokenRequest;
-import com.smartfactory.repository.DeviceTokenRepository;
 import com.smartfactory.security.JwtService;
 import com.smartfactory.security.Role;
 import org.junit.jupiter.api.BeforeEach;
@@ -101,7 +94,7 @@ class NotificationAndAssignmentIntegrationTest {
     @DisplayName("Section 10.4: Assignation et réassignation déclenchent des notifications ciblées et isolées")
     void testAssignmentAndReassignmentNotifications() {
         // 1. Création avec assignation initiale à tech1
-        InterventionCreateRequest createReq = new InterventionCreateRequest();
+        MaintenanceIntervention createReq = new MaintenanceIntervention();
         createReq.setMachineId(machine.getId());
         createReq.setTitle("Maintenance initiale");
         createReq.setDescription("Vérification circuit hydraulique");
@@ -209,7 +202,7 @@ class NotificationAndAssignmentIntegrationTest {
     @Test
     @DisplayName("Multiple Technicians: Assignation multiple via API et notifications isolées")
     void testMultipleTechniciansAssignmentNotifications() throws Exception {
-        InterventionCreateRequest createReq = new InterventionCreateRequest();
+        MaintenanceIntervention createReq = new MaintenanceIntervention();
         createReq.setMachineId(machine.getId());
         createReq.setTitle("Maintenance groupe");
         createReq.setDescription("Intervention multi-techniciens");
@@ -218,7 +211,7 @@ class NotificationAndAssignmentIntegrationTest {
 
         MaintenanceIntervention created = interventionService.createIntervention(createReq, respIndus.getEmail());
 
-        InterventionAssignRequest assignReq = new InterventionAssignRequest();
+        MaintenanceIntervention assignReq = new MaintenanceIntervention();
         assignReq.setTechnicianIds(List.of(tech1.getId(), tech2.getId()));
 
         mockMvc.perform(put("/api/maintenance/" + created.getId() + "/assign")
@@ -242,7 +235,7 @@ class NotificationAndAssignmentIntegrationTest {
     @Test
     @DisplayName("Creator Notifications: Les actions du technicien notifient le créateur de l'intervention")
     void testTechnicianActionsNotifyInterventionCreator() {
-        InterventionCreateRequest createReq = new InterventionCreateRequest();
+        MaintenanceIntervention createReq = new MaintenanceIntervention();
         createReq.setMachineId(machine.getId());
         createReq.setTitle("Vérification moteur");
         createReq.setDescription("Diagnostic et réparation");
@@ -254,26 +247,29 @@ class NotificationAndAssignmentIntegrationTest {
         notificationRepository.deleteAll(); // Vider les notifications initiales d'assignation
 
         // 1. Technicien ajoute un diagnostic
-        interventionService.addDiagnosis(interv.getId(), new DiagnosisCreateRequest("Roulement usé", "Niveau sonore anormal"), tech1.getId(), "Jean Tech");
+        interventionService.addDiagnosis(interv.getId(), new MaintenanceDiagnosis("Roulement usé", "Niveau sonore anormal", tech1.getId(), "Jean Tech"), tech1.getId(), "Jean Tech");
         List<AppNotification> creatorNotifs = notificationRepository.findByUserId(respIndus.getId());
         assertThat(creatorNotifs).hasSize(1);
         assertThat(creatorNotifs.get(0).getMessage()).contains("Diagnostic");
         assertThat(creatorNotifs.get(0).getInterventionId()).isEqualTo(interv.getId());
 
         // 2. Technicien ajoute une action
-        interventionService.addAction(interv.getId(), new ActionCreateRequest("Graissage", "Graisse haute performance", 20), tech1.getId(), "Jean Tech");
+        interventionService.addAction(interv.getId(), new MaintenanceAction("Graissage", tech1.getId(), "Jean Tech", "Graisse haute performance", 20), tech1.getId(), "Jean Tech");
         creatorNotifs = notificationRepository.findByUserId(respIndus.getId());
         assertThat(creatorNotifs).hasSize(2);
         assertThat(creatorNotifs.stream().anyMatch(n -> n.getTitle().contains("Action") || n.getMessage().contains("Graissage"))).isTrue();
 
         // 3. Technicien ajoute une observation
-        interventionService.addObservation(interv.getId(), new ObservationCreateRequest("Surveiller vibration", "OPERATING_CONDITION"), tech1.getId(), "Jean Tech");
+        interventionService.addObservation(interv.getId(), new MaintenanceObservation("Surveiller vibration", tech1.getId(), "Jean Tech", "OPERATING_CONDITION"), tech1.getId(), "Jean Tech");
         creatorNotifs = notificationRepository.findByUserId(respIndus.getId());
         assertThat(creatorNotifs).hasSize(3);
         assertThat(creatorNotifs.stream().anyMatch(n -> n.getTitle().contains("Observation") || n.getMessage().contains("vibration"))).isTrue();
 
         // 4. Technicien clôture l'intervention
-        interventionService.closeIntervention(interv.getId(), new InterventionCloseRequest("Réparation terminée avec succès", true), "Jean Tech");
+        MaintenanceIntervention closeReq = new MaintenanceIntervention();
+        closeReq.setClosureNotes("Réparation terminée avec succès");
+        closeReq.setRestoreMachineStatus(true);
+        interventionService.closeIntervention(interv.getId(), closeReq, "Jean Tech");
         creatorNotifs = notificationRepository.findByUserId(respIndus.getId());
         assertThat(creatorNotifs).hasSize(4);
         assertThat(creatorNotifs.stream().anyMatch(n -> n.getTitle().contains("terminée"))).isTrue();
@@ -282,7 +278,7 @@ class NotificationAndAssignmentIntegrationTest {
     @Test
     @DisplayName("Device Token: Enregistrement et désactivation (suppression logique)")
     void testDeviceTokenRegistrationAndDeactivation() throws Exception {
-        DeviceTokenRequest registerReq = new DeviceTokenRequest("fcm-tok-123456", "ANDROID", "device-galaxy-s24");
+        DeviceToken registerReq = new DeviceToken(tech1.getId(), "fcm-tok-123456", "ANDROID", "device-galaxy-s24");
 
         // 1. Enregistrement du token (HTTP 201 Created)
         mockMvc.perform(post("/api/notifications/tokens")
@@ -298,7 +294,7 @@ class NotificationAndAssignmentIntegrationTest {
         assertThat(tokens.get(0).isActive()).isTrue();
 
         // 2. Désactivation du token via DELETE /api/notifications/tokens
-        DeviceTokenRequest deleteReq = new DeviceTokenRequest("fcm-tok-123456");
+        java.util.Map<String, String> deleteReq = java.util.Map.of("token", "fcm-tok-123456");
         mockMvc.perform(delete("/api/notifications/tokens")
                         .header("Authorization", "Bearer " + tech1Token)
                         .contentType(MediaType.APPLICATION_JSON)

@@ -41,14 +41,16 @@ Il orchestre :
 ```
 com.smartfactory
 ├── SmartFactoryApplication.java     # Point d'entrée Spring Boot et activation MongoAuditing
-├── config/                         # Configuration Spring (Sécurité, MQTT, WebSocket, Initialisation)
+├── config/                         # Configuration Spring (Sécurité, MQTT, WebSocket, Bases hebdo)
 ├── controller/                     # Contrôleurs REST exposant les endpoints HTTP
-├── dto/                            # Objets de transfert de données (DTO requêtes / réponses)
-├── entity/                         # Modèles de domaine persistés dans MongoDB
+├── entity/                         # Modèles de domaine persistés dans MongoDB (DTO purgés, entités directes)
 ├── repository/                     # Interfaces Spring Data MongoRepository
 ├── security/                       # Filtres JWT, gestionnaire de privilèges, UserPrincipal
-└── service/                        # Logique métier, cache concurrent des seuils, orchestration
+└── service/                        # Logique métier, supervision industrielle, détection d'anomalies
 ```
+
+> **Note d'Architecture — Suppression Intégrale de la Couche DTO** :  
+> L'ensemble des 18 classes DTO intermédiaires du package `com.smartfactory.dto` a été entièrement supprimé. Les contrôleurs et services utilisent directement les entités du domaine (`com.smartfactory.entity`) et des structures de données standardisées (`Map<String, Object>`), simplifiant la maintenance tout en garantissant une rétrocompatibilité JSON rigoureusement identique pour les clients REST.
 
 ### 4. Flux Général des Données
 ```
@@ -581,6 +583,70 @@ Pour supporter un flux continu de mesures IoT (ex. plusieurs mesures par seconde
 
 ---
 
+### 6. Dashboard & Supervision Industrielle (`/api/dashboard`) — Sprint 7 (US51 à US55)
+Accessible par : `ADMIN`, `RESPONSABLE_INDUSTRIEL`, `TECHNICIAN`. Accès strictement refusé aux opérateurs (`OPERATOR` $\rightarrow$ `403 Forbidden`).
+
+| Méthode | URL | Description | Paramètres / Corps | Permission Requise | Réponses |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `GET` | `/api/dashboard/overview` | **US51** : Vue d'ensemble du Dashboard industriel (synthèse globale temps réel de l'usine) | Aucun | `ADMIN`, `RESPONSABLE_INDUSTRIEL`, `TECHNICIAN` | `200 OK`, `403 Forbidden` |
+| `GET` | `/api/dashboard/kpis` | **US52** : Indicateurs industriels clés (Disponibilité, MTBF, MTTR, TRS/OEE) | `period` (`day`, `week`, `month`), `machineId` (optionnel) | `ADMIN`, `RESPONSABLE_INDUSTRIEL`, `TECHNICIAN` | `200 OK`, `404 Not Found` |
+| `GET` | `/api/dashboard/kpis/history` | **US52** : Série temporelle historique des indicateurs KPIs | `period` (`week`, `month`), `machineId`, `points` | `ADMIN`, `RESPONSABLE_INDUSTRIEL`, `TECHNICIAN` | `200 OK` |
+| `GET` | `/api/dashboard/factory-state` | **US53** : État synthétique de l'usine et agrégation par zones industrielles | Aucun | `ADMIN`, `RESPONSABLE_INDUSTRIEL`, `TECHNICIAN` | `200 OK` |
+| `GET` | `/api/dashboard/zones/{zoneId}` | **US53** : Supervision détaillée d'une zone (machines rattachées, santé, alertes) | ID zone en URL | `ADMIN`, `RESPONSABLE_INDUSTRIEL`, `TECHNICIAN` | `200 OK`, `404 Not Found` |
+| `GET` | `/api/dashboard/anomalies` | **US54** : Supervision globale des anomalies (recherche, filtres, pagination, tri) | `period`, `severity`, `status`, `machineId`, `zoneId`, `page`, `size`, `sort` | `ADMIN`, `RESPONSABLE_INDUSTRIEL`, `TECHNICIAN` | `200 OK` |
+| `GET` | `/api/dashboard/anomalies/stats` | **US54** : Statistiques globales des anomalies (par sévérité, statut, capteur, top machines) | `period` (`day`, `week`, `month`) | `ADMIN`, `RESPONSABLE_INDUSTRIEL`, `TECHNICIAN` | `200 OK` |
+| `GET` | `/api/dashboard/health-scores` | **US55** : Score de santé (0-100) pour l'ensemble des machines du parc industriel | Aucun | `ADMIN`, `RESPONSABLE_INDUSTRIEL`, `TECHNICIAN` | `200 OK` |
+| `GET` | `/api/dashboard/health-scores/{machineId}` | **US55** : Décomposition détaillée du score de santé machine et recommandations | ID machine en URL | `ADMIN`, `RESPONSABLE_INDUSTRIEL`, `TECHNICIAN` | `200 OK`, `404 Not Found` |
+
+#### Formules et Règles de Calcul des KPIs (US52 & US55) :
+1. **Taux de Disponibilité (Availability %)** :
+   $$\text{Disponibilité} = \left(\frac{\text{Temps Opérationnel Observé}}{\text{Temps Total Période}}\right) \times 100$$
+   Calculé à partir du temps passé hors pannes et de la somme des durées des interventions correctives sur l'intervalle.
+2. **MTBF (Mean Time Between Failures)** :
+   $$\text{MTBF (heures)} = \frac{\text{Total Heures de Fonctionnement}}{\text{Nombre de Pannes ou Interventions Correctives}}$$
+   Si aucune panne n'est survenue sur l'intervalle, la valeur correspond au temps de fonctionnement complet avec mention explicite *"Aucune panne constatée sur la période"*.
+3. **MTTR (Mean Time To Repair)** :
+   $$\text{MTTR (minutes/heures)} = \frac{\sum \text{Durée des réparations des interventions clôturées}}{\text{Nombre d'interventions correctives clôturées}}$$
+4. **Justification de l'Indisponibilité du TRS / OEE** :
+   Dans le simulateur IoT actuel, les capteurs ne remontent que `TEMPERATURE`, `VIBRATION`, `CURRENT`, et `RPM`. Les grandeurs nécessaires au calcul du TRS (temps de cycle nominal, comptage des pièces bonnes vs rebuts pour le taux de qualité) ne sont pas instrumentées. En stricte conformité métier, l'API renvoie un statut `"UNAVAILABLE"`, `value: null`, accompagné de la liste des champs manquants (`missingMetrics`) au lieu d'une valeur factice.
+5. **Algorithme Déterministe du Health Score (0 - 100)** :
+   - Score initial : `100`.
+   - Déduction statut machine : `RUNNING` (0), `IDLE` (-5), `OFFLINE` (-15), `MAINTENANCE` (-20), `FAILURE` (-40).
+   - Déduction alertes actives : Alerte critique active (-25/alerte, max -50), Alerte warning (-10/alerte, max -30).
+   - Déduction anomalies ouvertes : -10 pour anomalie critique, -5 pour anomalie warning (max -25).
+   - Déduction télémétrie capteurs : Dépassement critique seuil (-15), dépassement warning (-5).
+   - Évaluation : $\ge 80$ : `EXCELLENT`, $60-79$ : `GOOD`, $40-59$ : `WARNING`, $<40$ : `CRITICAL`.
+   - Machines sans capteurs/télémétrie hors ligne : Statut `"INSUFFICIENT_DATA"` avec recommandation d'instrumentation.
+
+---
+
+### 7. Paramètres & Préférences de Notification (`/api/settings` & `/api/notifications/preferences`)
+| Méthode | URL | Description | Paramètres / Corps | Permission Requise | Réponses |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `GET` | `/api/settings` | Paramètres utilisateur et préférence push | Aucun | Authentifié | `200 OK` |
+| `PATCH`, `PUT` | `/api/settings` | Mise à jour des paramètres et activation/désactivation push | `{"notificationsEnabled": boolean}` | Authentifié | `200 OK` |
+| `GET` | `/api/notifications/preferences` | Préférences de notification de l'utilisateur connecté | Aucun | Authentifié | `200 OK` |
+| `PATCH`, `PUT` | `/api/notifications/preferences` | Bascule du toggle push (on/off) | `{"notificationsEnabled": boolean}` | Authentifié | `200 OK` |
+| `GET` | `/api/users/{id}/preferences` | Consultation des préférences d'un utilisateur par ID | ID utilisateur en URL | Authentifié | `200 OK` |
+| `PATCH`, `PUT` | `/api/users/{id}/preferences` | Mise à jour des préférences d'un utilisateur par ID | ID en URL, `{"notificationsEnabled": boolean}` | Authentifié | `200 OK` |
+
+---
+
+### 8. Maintenance & Interventions Industrielles (`/api/maintenance`) — Sprint 6
+| Méthode | URL | Description | Paramètres / Corps | Permission Requise | Réponses |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `GET` | `/api/maintenance` | Liste des interventions (filtrée par technicien si TECHNICIEN) | `status`, `type`, `page`, `size` | `MAINTENANCE_READ` | `200 OK`, `403 Forbidden` |
+| `GET` | `/api/maintenance/{id}` | Détail complet d'une intervention | ID en URL | `MAINTENANCE_READ` | `200 OK`, `403 Forbidden`, `404 Not Found` |
+| `POST` | `/api/maintenance` | Création d'une intervention | Corps `MaintenanceIntervention` | `RESPONSABLE_INDUSTRIEL`, `ADMIN` | `201 Created`, `403 Forbidden` |
+| `POST`, `PUT` | `/api/maintenance/{id}/start` | **Démarrage d'une intervention** (passe à `IN_PROGRESS`, machine à `MAINTENANCE`, notifie le Responsable Industriel) | ID intervention en URL | `TECHNICIAN`, `RESPONSABLE_INDUSTRIEL`, `ADMIN` | `200 OK`, `404 Not Found` |
+| `PUT` | `/api/maintenance/{id}/assign` | Assignation ou réassignation de techniciens | `{"technicianId": "..."}` ou `{"technicianIds": [...]}` | `RESPONSABLE_INDUSTRIEL`, `ADMIN` | `200 OK`, `403 Forbidden` |
+| `POST` | `/api/maintenance/{id}/diagnoses` | Enregistrement d'un diagnostic technique | Corps `MaintenanceDiagnosis` | Technicien assigné, `ADMIN` | `200 OK`, `403 Forbidden` |
+| `POST` | `/api/maintenance/{id}/actions` | Ajout d'une action de réparation | Corps `MaintenanceAction` | Technicien assigné, `ADMIN` | `200 OK`, `403 Forbidden` |
+| `POST` | `/api/maintenance/{id}/observations` | Ajout d'une observation technique | Corps `MaintenanceObservation` | Technicien assigné, `ADMIN` | `200 OK`, `403 Forbidden` |
+| `PUT` | `/api/maintenance/{id}/close` | Clôture de l'intervention (statut `COMPLETED`, restauration statut machine) | `{"closureNotes", "restoreMachineStatus"}` | Technicien assigné, `ADMIN` | `200 OK`, `403 Forbidden` |
+
+---
+
 ## F. Schéma de la Base de Données et Migration
 
 ### 1. Collections MongoDB et Relations
@@ -658,14 +724,14 @@ Au démarrage :
 
 ### 4. Exécution des Tests Automatisés
 ```powershell
-# Exécuter l'ensemble de la suite de tests (152 tests) :
+# Exécuter l'ensemble de la suite de tests (217 tests couvrant Sprints 1 à 7) :
 .\mvnw.cmd test
 ```
 
 Résultat attendu :
 ```
 [INFO] Results:
-[INFO] Tests run: 152, Failures: 0, Errors: 0, Skipped: 0
+[INFO] Tests run: 217, Failures: 0, Errors: 0, Skipped: 0
 [INFO] BUILD SUCCESS
 ```
 

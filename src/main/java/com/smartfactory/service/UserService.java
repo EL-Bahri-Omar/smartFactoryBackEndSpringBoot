@@ -12,8 +12,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 public class UserService {
@@ -137,49 +140,68 @@ public class UserService {
         return userRepository.save(user);
     }
 
-    public com.smartfactory.dto.UserPermissionsDto getUserPermissions(String id) {
+    public Map<String, Object> getUserPermissions(String id) {
         User user = getUserById(id);
         java.util.Set<com.smartfactory.security.Permission> roleDefaults =
                 user.getRole() != null ? user.getRole().getDefaultPermissions() : java.util.Collections.emptySet();
-        return new com.smartfactory.dto.UserPermissionsDto(
-                user.getId(),
-                user.getEmail(),
-                user.getRole(),
-                roleDefaults,
-                user.getCustomGrantedPermissions(),
-                user.getCustomRevokedPermissions(),
-                user.getEffectivePermissions()
-        );
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("userId", user.getId());
+        res.put("email", user.getEmail());
+        res.put("role", user.getRole());
+        res.put("roleDefaultPermissions", roleDefaults);
+        res.put("customGrantedPermissions", user.getCustomGrantedPermissions());
+        res.put("customRevokedPermissions", user.getCustomRevokedPermissions());
+        res.put("effectivePermissions", user.getEffectivePermissions());
+        return res;
     }
 
-    public com.smartfactory.dto.UserPermissionsDto updateUserPermissions(String id, com.smartfactory.dto.UpdatePermissionsRequest request) {
+    public Map<String, Object> updateUserPermissions(String id, Map<String, Object> request) {
         User user = getUserById(id);
 
-        if (request.getPermissions() != null) {
+        if (request != null && request.containsKey("permissions") && request.get("permissions") != null) {
             // Checklist globale
-            user.applyPermissionsChecklist(request.getPermissions());
-        } else {
+            Set<com.smartfactory.security.Permission> perms = parsePermissionsSet(request.get("permissions"));
+            user.applyPermissionsChecklist(perms);
+        } else if (request != null) {
             // Modification différentielle
-            if (request.getGrantedPermissions() != null) {
-                user.setCustomGrantedPermissions(request.getGrantedPermissions());
+            if (request.containsKey("grantedPermissions") && request.get("grantedPermissions") != null) {
+                Set<com.smartfactory.security.Permission> granted = parsePermissionsSet(request.get("grantedPermissions"));
+                user.setCustomGrantedPermissions(granted);
             }
-            if (request.getRevokedPermissions() != null) {
-                user.setCustomRevokedPermissions(request.getRevokedPermissions());
+            if (request.containsKey("revokedPermissions") && request.get("revokedPermissions") != null) {
+                Set<com.smartfactory.security.Permission> revoked = parsePermissionsSet(request.get("revokedPermissions"));
+                user.setCustomRevokedPermissions(revoked);
             }
         }
 
         User saved = userRepository.save(user);
         java.util.Set<com.smartfactory.security.Permission> roleDefaults =
                 saved.getRole() != null ? saved.getRole().getDefaultPermissions() : java.util.Collections.emptySet();
-        return new com.smartfactory.dto.UserPermissionsDto(
-                saved.getId(),
-                saved.getEmail(),
-                saved.getRole(),
-                roleDefaults,
-                saved.getCustomGrantedPermissions(),
-                saved.getCustomRevokedPermissions(),
-                saved.getEffectivePermissions()
-        );
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("userId", saved.getId());
+        res.put("email", saved.getEmail());
+        res.put("role", saved.getRole());
+        res.put("roleDefaultPermissions", roleDefaults);
+        res.put("customGrantedPermissions", saved.getCustomGrantedPermissions());
+        res.put("customRevokedPermissions", saved.getCustomRevokedPermissions());
+        res.put("effectivePermissions", saved.getEffectivePermissions());
+        return res;
+    }
+
+    private Set<com.smartfactory.security.Permission> parsePermissionsSet(Object obj) {
+        Set<com.smartfactory.security.Permission> result = new HashSet<>();
+        if (obj instanceof Collection<?> coll) {
+            for (Object item : coll) {
+                if (item instanceof com.smartfactory.security.Permission p) {
+                    result.add(p);
+                } else if (item instanceof String s) {
+                    try {
+                        result.add(com.smartfactory.security.Permission.valueOf(s.trim()));
+                    } catch (IllegalArgumentException ignored) {}
+                }
+            }
+        }
+        return result;
     }
 
     public Map<String, Object> getPermissionsCatalog() {

@@ -1,9 +1,7 @@
 package com.smartfactory.service;
 
-import com.smartfactory.dto.ModuleCreateRequest;
-import com.smartfactory.dto.ModulePrivilegeCreateRequest;
-import com.smartfactory.dto.ModuleResponseDto;
 import com.smartfactory.entity.FunctionalModule;
+import com.smartfactory.entity.ModulePrivilege;
 import com.smartfactory.repository.FunctionalModuleRepository;
 import com.smartfactory.repository.RoleRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,11 +33,11 @@ class FunctionalModuleServiceTest {
     @Test
     @DisplayName("2.4 - Create new functional module with unique code")
     void testCreateModule() {
-        ModuleCreateRequest req = new ModuleCreateRequest("INVENTORY", "Gestion des stocks", "Catégorie logistique");
+        FunctionalModule req = new FunctionalModule("INVENTORY", "Gestion des stocks", "Catégorie logistique", false);
         when(moduleRepository.existsByCodeIgnoreCase("INVENTORY")).thenReturn(false);
         when(moduleRepository.save(any(FunctionalModule.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ModuleResponseDto created = moduleService.createModule(req);
+        FunctionalModule created = moduleService.createModule(req);
         assertThat(created.getCode()).isEqualTo("INVENTORY");
         assertThat(created.getName()).isEqualTo("Gestion des stocks");
         verify(moduleRepository, times(1)).save(any(FunctionalModule.class));
@@ -48,7 +46,7 @@ class FunctionalModuleServiceTest {
     @Test
     @DisplayName("2.4 - Rejects duplicate functional module code")
     void testDuplicateModuleCodeRejected() {
-        ModuleCreateRequest req = new ModuleCreateRequest("USER", "Gestion des utilisateurs", "Catégorie auth");
+        FunctionalModule req = new FunctionalModule("USER", "Gestion des utilisateurs", "Catégorie auth", false);
         when(moduleRepository.existsByCodeIgnoreCase("USER")).thenReturn(true);
 
         assertThatThrownBy(() -> moduleService.createModule(req))
@@ -65,8 +63,8 @@ class FunctionalModuleServiceTest {
         when(moduleRepository.findByCodeIgnoreCase("mod-user-1")).thenReturn(Optional.of(userModule));
         when(moduleRepository.save(any(FunctionalModule.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ModulePrivilegeCreateRequest req = new ModulePrivilegeCreateRequest("AJOUTER", "Créer un utilisateur", "Droit de créer un compte");
-        ModuleResponseDto updated = moduleService.addPrivilegeToModule("mod-user-1", req);
+        ModulePrivilege req = new ModulePrivilege("AJOUTER", null, "Créer un utilisateur", "Droit de créer un compte");
+        FunctionalModule updated = moduleService.addPrivilegeToModule("mod-user-1", req);
 
         assertThat(updated.getPrivileges()).isNotEmpty();
         assertThat(updated.getPrivileges().stream().anyMatch(p -> "USER:AJOUTER".equals(p.getCode()))).isTrue();

@@ -21,6 +21,8 @@ public class ModulePrivilege implements Serializable {
 
     private String description;
 
+    private String category;
+
     public ModulePrivilege() {
     }
 
@@ -29,6 +31,22 @@ public class ModulePrivilege implements Serializable {
         this.code = code != null ? code.trim().toUpperCase() : null;
         this.name = name;
         this.description = description;
+    }
+
+    public ModulePrivilege(String action, String code, String name, String description, String category) {
+        this.action = action != null ? action.trim().toUpperCase() : null;
+        this.code = code != null ? code.trim().toUpperCase() : null;
+        this.name = name;
+        this.description = description;
+        this.category = category;
+    }
+
+    public String getCategory() {
+        return category;
+    }
+
+    public void setCategory(String category) {
+        this.category = category;
     }
 
     public String getAction() {

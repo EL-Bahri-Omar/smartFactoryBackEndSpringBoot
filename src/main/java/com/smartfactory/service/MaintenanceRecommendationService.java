@@ -1,6 +1,5 @@
 package com.smartfactory.service;
 
-import com.smartfactory.dto.InterventionCreateRequest;
 import com.smartfactory.entity.*;
 import com.smartfactory.repository.AlertRepository;
 import com.smartfactory.repository.MachineRepository;
@@ -220,15 +219,17 @@ public class MaintenanceRecommendationService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Impossible de créer une intervention pour une recommandation sans action requise");
         }
 
-        InterventionCreateRequest req = new InterventionCreateRequest();
-        req.setMachineId(rec.getMachineId());
-        req.setTitle(rec.getTitle());
-        req.setDescription(rec.getJustification() + "\nActions suggérées : " + rec.getSuggestedActions());
-        req.setType(rec.getRecommendedType());
-        req.setPreventiveSubtype(rec.getRecommendedSubtype());
-        req.setPriority(rec.getPriority());
-        req.setTechnicianId(technicianId);
+        MaintenanceIntervention interv = new MaintenanceIntervention();
+        interv.setMachineId(rec.getMachineId());
+        interv.setTitle(rec.getTitle());
+        interv.setDescription(rec.getJustification() + "\nActions suggérées : " + rec.getSuggestedActions());
+        interv.setType(rec.getRecommendedType());
+        interv.setPreventiveSubtype(rec.getRecommendedSubtype());
+        interv.setPriority(rec.getPriority());
+        if (technicianId != null) {
+            interv.setTechnicianId(technicianId);
+        }
 
-        return interventionService.createIntervention(req, username);
+        return interventionService.createIntervention(interv, username);
     }
 }

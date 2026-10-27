@@ -33,6 +33,12 @@ public interface AnomalyRepository extends MongoRepository<Anomaly, String> {
 
     List<Anomaly> findByMachineIdAndTimestampBetween(String machineId, Instant from, Instant to);
 
+    List<Anomaly> findByTimestampBetween(Instant from, Instant to);
+
+    List<Anomaly> findByMachineIdAndStatus(String machineId, String status);
+
+    long countByStatus(String status);
+
     long countByMachineIdAndStatus(String machineId, String status);
 
     void deleteByMachineId(String machineId);

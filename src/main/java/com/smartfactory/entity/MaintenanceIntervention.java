@@ -270,6 +270,41 @@ public class MaintenanceIntervention {
     public String getClosureNotes() { return closureNotes; }
     public void setClosureNotes(String closureNotes) { this.closureNotes = closureNotes; }
 
+    @org.springframework.data.annotation.Transient
+    private Boolean restoreMachineStatus = true;
+
+    public Boolean getRestoreMachineStatus() { return restoreMachineStatus; }
+    public void setRestoreMachineStatus(Boolean restoreMachineStatus) { this.restoreMachineStatus = restoreMachineStatus; }
+    public boolean isRestoreMachineStatus() { return restoreMachineStatus == null || restoreMachineStatus; }
+
+    private Integer durationMinutes;
+
+    public Integer getDurationMinutes() {
+        if (durationMinutes != null && durationMinutes > 0) {
+            return durationMinutes;
+        }
+        if (actions != null && !actions.isEmpty()) {
+            int total = 0;
+            for (MaintenanceAction act : actions) {
+                if (act.getDurationMinutes() != null) {
+                    total += act.getDurationMinutes();
+                }
+            }
+            if (total > 0) return total;
+        }
+        if (startedAt != null && closedAt != null) {
+            return (int) java.time.temporal.ChronoUnit.MINUTES.between(startedAt, closedAt);
+        }
+        return null;
+    }
+
+    public void setDurationMinutes(Integer durationMinutes) {
+        this.durationMinutes = durationMinutes;
+    }
+
+    public Instant getCompletedAt() { return closedAt; }
+    public void setCompletedAt(Instant completedAt) { this.closedAt = completedAt; }
+
     public Instant getCreatedAt() { return createdAt; }
     public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
 

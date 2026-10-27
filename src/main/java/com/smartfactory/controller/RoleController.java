@@ -1,9 +1,7 @@
 package com.smartfactory.controller;
 
-import com.smartfactory.dto.PrivilegeDto;
-import com.smartfactory.dto.RoleCreateRequest;
-import com.smartfactory.dto.RoleResponseDto;
-import com.smartfactory.dto.RoleUpdateRequest;
+import com.smartfactory.entity.ModulePrivilege;
+import com.smartfactory.entity.RoleDocument;
 import com.smartfactory.service.RoleService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -34,8 +32,8 @@ public class RoleController {
      */
     @GetMapping
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_READ')")
-    public ResponseEntity<List<RoleResponseDto>> getAllRoles() {
-        List<RoleResponseDto> roles = roleService.getAllRoles();
+    public ResponseEntity<List<RoleDocument>> getAllRoles() {
+        List<RoleDocument> roles = roleService.getAllRoles();
         return ResponseEntity.ok(roles);
     }
 
@@ -45,8 +43,8 @@ public class RoleController {
      */
     @GetMapping("/privileges")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_READ')")
-    public ResponseEntity<List<PrivilegeDto>> getAllPrivileges() {
-        List<PrivilegeDto> privileges = roleService.getAllAvailablePrivileges();
+    public ResponseEntity<List<ModulePrivilege>> getAllPrivileges() {
+        List<ModulePrivilege> privileges = roleService.getAllAvailablePrivileges();
         return ResponseEntity.ok(privileges);
     }
 
@@ -56,8 +54,8 @@ public class RoleController {
      */
     @GetMapping("/{idOrName}")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_READ')")
-    public ResponseEntity<RoleResponseDto> getRole(@PathVariable String idOrName) {
-        RoleResponseDto role = roleService.getRole(idOrName);
+    public ResponseEntity<RoleDocument> getRole(@PathVariable String idOrName) {
+        RoleDocument role = roleService.getRole(idOrName);
         return ResponseEntity.ok(role);
     }
 
@@ -67,8 +65,8 @@ public class RoleController {
      */
     @PostMapping
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_CREATE')")
-    public ResponseEntity<RoleResponseDto> createRole(@Valid @RequestBody RoleCreateRequest request) {
-        RoleResponseDto created = roleService.createRole(request);
+    public ResponseEntity<RoleDocument> createRole(@Valid @RequestBody RoleDocument request) {
+        RoleDocument created = roleService.createRole(request);
         return new ResponseEntity<>(created, HttpStatus.CREATED);
     }
 
@@ -78,11 +76,11 @@ public class RoleController {
      */
     @PutMapping("/{idOrName}")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_UPDATE')")
-    public ResponseEntity<RoleResponseDto> updateRole(
+    public ResponseEntity<RoleDocument> updateRole(
             @PathVariable String idOrName,
-            @Valid @RequestBody RoleUpdateRequest request
+            @RequestBody RoleDocument request
     ) {
-        RoleResponseDto updated = roleService.updateRole(idOrName, request);
+        RoleDocument updated = roleService.updateRole(idOrName, request);
         return ResponseEntity.ok(updated);
     }
 
@@ -114,11 +112,11 @@ public class RoleController {
      */
     @PostMapping("/{idOrName}/privileges")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_UPDATE')")
-    public ResponseEntity<RoleResponseDto> addPrivilegesToRole(
+    public ResponseEntity<RoleDocument> addPrivilegesToRole(
             @PathVariable String idOrName,
             @RequestBody Set<String> privileges
     ) {
-        RoleResponseDto updated = roleService.addPrivilegesToRole(idOrName, privileges);
+        RoleDocument updated = roleService.addPrivilegesToRole(idOrName, privileges);
         return ResponseEntity.ok(updated);
     }
 
@@ -128,11 +126,11 @@ public class RoleController {
      */
     @DeleteMapping("/{idOrName}/privileges/{privilege}")
     @PreAuthorize("hasAnyAuthority('ROLE_ADMIN', 'ROLE_UPDATE')")
-    public ResponseEntity<RoleResponseDto> removePrivilegeFromRole(
+    public ResponseEntity<RoleDocument> removePrivilegeFromRole(
             @PathVariable String idOrName,
             @PathVariable String privilege
     ) {
-        RoleResponseDto updated = roleService.removePrivilegeFromRole(idOrName, privilege);
+        RoleDocument updated = roleService.removePrivilegeFromRole(idOrName, privilege);
         return ResponseEntity.ok(updated);
     }
 }

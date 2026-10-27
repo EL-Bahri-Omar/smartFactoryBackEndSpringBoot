@@ -46,6 +46,12 @@ public class User {
     private boolean emailVerified = true;
 
     /**
+     * Préférence de notification push de l'utilisateur (Section 5).
+     * true = notifications autorisées (par défaut), false = désactivées par l'utilisateur.
+     */
+    private boolean notificationsEnabled = true;
+
+    /**
      * Privilèges explicitement accordés à cet utilisateur (en plus de son rôle).
      */
     private Set<Permission> customGrantedPermissions = new HashSet<>();
@@ -201,11 +207,17 @@ public class User {
         this.customRoleName = customRoleName;
     }
 
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
     public String getEffectiveRoleName() {
         if (customRoleName != null && !customRoleName.trim().isEmpty()) {
             return customRoleName.trim().toUpperCase();
         }
         return role != null ? role.name() : "OPERATOR";
+    }
+
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public void setEffectiveRoleName(String effectiveRoleName) {
+        // no-op for deserialization safety
     }
 
     public String getStatus() {
@@ -238,6 +250,34 @@ public class User {
 
     public void setCustomRevokedPermissions(Set<Permission> customRevokedPermissions) {
         this.customRevokedPermissions = customRevokedPermissions != null ? customRevokedPermissions : new HashSet<>();
+    }
+
+    public boolean isNotificationsEnabled() {
+        return notificationsEnabled;
+    }
+
+    public void setNotificationsEnabled(boolean notificationsEnabled) {
+        this.notificationsEnabled = notificationsEnabled;
+    }
+
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public String getUserId() {
+        return id;
+    }
+
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public void setUserId(String userId) {
+        // no-op for deserialization safety
+    }
+
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public Set<Permission> getRoleDefaultPermissions() {
+        return role != null ? role.getDefaultPermissions() : Collections.emptySet();
+    }
+
+    @JsonProperty(access = JsonProperty.Access.READ_ONLY)
+    public void setRoleDefaultPermissions(Set<Permission> roleDefaultPermissions) {
+        // no-op for deserialization safety
     }
 
     public Instant getCreatedAt() {

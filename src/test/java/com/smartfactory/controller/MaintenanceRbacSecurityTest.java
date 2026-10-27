@@ -1,7 +1,6 @@
 package com.smartfactory.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.smartfactory.dto.*;
 import com.smartfactory.entity.*;
 import com.smartfactory.repository.MachineRepository;
 import com.smartfactory.repository.MaintenanceInterventionRepository;
@@ -88,7 +87,7 @@ class MaintenanceRbacSecurityTest {
     @Test
     @DisplayName("Section 10.6: Création d'intervention - Autorisé pour RI, refusé (403) pour TECHNICIEN et OPERATEUR")
     void testInterventionCreationRbac() throws Exception {
-        InterventionCreateRequest request = new InterventionCreateRequest();
+        MaintenanceIntervention request = new MaintenanceIntervention();
         request.setMachineId(machine.getId());
         request.setTitle("Inspection générale");
         request.setDescription("Maintenance préventive systématique");
@@ -132,7 +131,7 @@ class MaintenanceRbacSecurityTest {
         inter = interventionRepository.save(inter);
 
         // 1. Tech 1 tente de modifier les paramètres généraux (PUT /api/maintenance/{id}) -> 403 Forbidden
-        InterventionUpdateRequest updateReq = new InterventionUpdateRequest();
+        MaintenanceIntervention updateReq = new MaintenanceIntervention();
         updateReq.setTitle("Nouveau titre non autorisé");
         updateReq.setPriority(InterventionPriority.CRITICAL);
 
@@ -143,7 +142,7 @@ class MaintenanceRbacSecurityTest {
                 .andExpect(status().isForbidden());
 
         // 2. Tech 1 tente de réassigner l'intervention à Tech 2 -> 403 Forbidden
-        InterventionAssignRequest assignReq = new InterventionAssignRequest();
+        MaintenanceIntervention assignReq = new MaintenanceIntervention();
         assignReq.setTechnicianId(tech2.getId());
 
         mockMvc.perform(put("/api/maintenance/" + inter.getId() + "/assign")
@@ -183,7 +182,7 @@ class MaintenanceRbacSecurityTest {
         inter = interventionRepository.save(inter);
 
         // 1. Tech 2 (non assigné) tente d'ajouter un diagnostic -> 403 Forbidden
-        DiagnosisCreateRequest diagReq = new DiagnosisCreateRequest();
+        MaintenanceDiagnosis diagReq = new MaintenanceDiagnosis();
         diagReq.setProbableCause("Surchauffe IGBT");
         diagReq.setDetails("Détails test");
 
@@ -194,7 +193,7 @@ class MaintenanceRbacSecurityTest {
                 .andExpect(status().isForbidden());
 
         // 2. Opérateur tente d'ajouter une action -> 403 Forbidden
-        ActionCreateRequest actReq = new ActionCreateRequest();
+        MaintenanceAction actReq = new MaintenanceAction();
         actReq.setDescription("Remplacement fusible");
 
         mockMvc.perform(post("/api/maintenance/" + inter.getId() + "/actions")
@@ -220,7 +219,7 @@ class MaintenanceRbacSecurityTest {
                 .andExpect(jsonPath("$.actions[0].description").value("Remplacement fusible"));
 
         // 5. Tech 1 clôture l'intervention avec succès -> 200 OK
-        InterventionCloseRequest closeReq = new InterventionCloseRequest();
+        MaintenanceIntervention closeReq = new MaintenanceIntervention();
         closeReq.setClosureNotes("Intervention terminée avec succès");
         closeReq.setRestoreMachineStatus(true);
 
@@ -303,7 +302,7 @@ class MaintenanceRbacSecurityTest {
                 .andExpect(jsonPath("$.title").value("Intervention Partagée"));
 
         // Tech 2 peut ajouter un diagnostic
-        DiagnosisCreateRequest diagReq = new DiagnosisCreateRequest();
+        MaintenanceDiagnosis diagReq = new MaintenanceDiagnosis();
         diagReq.setProbableCause("Usure courroie");
         diagReq.setDetails("Détails tech 2");
         mockMvc.perform(post("/api/maintenance/" + inter.getId() + "/diagnoses")

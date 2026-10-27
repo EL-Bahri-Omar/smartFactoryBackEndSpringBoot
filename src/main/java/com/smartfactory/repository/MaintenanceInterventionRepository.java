@@ -36,7 +36,11 @@ public interface MaintenanceInterventionRepository extends MongoRepository<Maint
 
     Page<MaintenanceIntervention> findByCreatedAtBetween(Instant from, Instant to, Pageable pageable);
 
+    List<MaintenanceIntervention> findByCreatedAtBetween(Instant from, Instant to);
+
     Page<MaintenanceIntervention> findByMachineIdAndCreatedAtBetween(String machineId, Instant from, Instant to, Pageable pageable);
+
+    List<MaintenanceIntervention> findByMachineIdAndCreatedAtBetween(String machineId, Instant from, Instant to);
 
     long countByStatus(InterventionStatus status);
 

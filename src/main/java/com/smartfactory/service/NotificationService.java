@@ -3,6 +3,7 @@ package com.smartfactory.service;
 import com.smartfactory.entity.Alert;
 import com.smartfactory.entity.AppNotification;
 import com.smartfactory.entity.DeviceToken;
+import com.smartfactory.entity.MaintenanceIntervention;
 import com.smartfactory.entity.User;
 import com.smartfactory.repository.DeviceTokenRepository;
 import com.smartfactory.repository.NotificationRepository;
@@ -80,6 +81,18 @@ public class NotificationService {
             deviceToken = new DeviceToken(userId.trim(), cleanToken, deviceType, deviceId);
         }
 
+        // Désactiver les anciens jetons de ce même appareil pour cet utilisateur afin d'éviter tout doublon
+        if (StringUtils.hasText(deviceId)) {
+            List<DeviceToken> userTokens = deviceTokenRepository.findByUserId(userId.trim());
+            for (DeviceToken dt : userTokens) {
+                if (deviceId.trim().equalsIgnoreCase(dt.getDeviceId()) && !cleanToken.equalsIgnoreCase(dt.getToken()) && dt.isActive()) {
+                    dt.setActive(false);
+                    deviceTokenRepository.save(dt);
+                    log.info("Ancien jeton désactivé pour appareil [{}] de l'utilisateur [{}]", deviceId, userId);
+                }
+            }
+        }
+
         DeviceToken saved = deviceTokenRepository.save(deviceToken);
         log.info("Token de notification enregistré pour l'utilisateur [{}] ({}) [active={}]",
                 userId, deviceToken.getDeviceType(), saved.isActive());
@@ -128,6 +141,7 @@ public class NotificationService {
         dataPayload.put("severity", severity);
         dataPayload.put("screen", "AlertDetail");
         dataPayload.put("type", notifType);
+        dataPayload.put("eventId", alert.getId() != null ? alert.getId() : ("ALERT_" + alert.getMachineId() + "_" + alert.getTimestamp()));
 
         Map<String, String> pushData = new HashMap<>();
         dataPayload.forEach((k, v) -> pushData.put(k, String.valueOf(v)));
@@ -536,6 +550,71 @@ public class NotificationService {
 
         log.info("Notification de complétion d'intervention envoyée au responsable [{}] pour [{}] par [{}]",
                 canonicalUserId, interventionId, techDisplayName);
+    }
+
+    /**
+     * Notifie le responsable industriel concerné lors du démarrage d'une intervention (Section 3).
+     */
+    public void notifyInterventionStarted(String managerId, MaintenanceIntervention intervention, String technicianName) {
+        if (!StringUtils.hasText(managerId) || intervention == null) {
+            return;
+        }
+
+        User manager = userRepository.findById(managerId)
+                .or(() -> userRepository.findByEmail(managerId))
+                .orElse(null);
+
+        String canonicalUserId = manager != null ? manager.getId() : managerId;
+        String techDisplayName = StringUtils.hasText(technicianName) ? technicianName : "Le technicien";
+
+        // Déduplication stricte : si déjà notifié pour le démarrage de cette intervention
+        if (intervention.getId() != null &&
+                notificationRepository.existsByUserIdAndInterventionIdAndType(canonicalUserId, intervention.getId(), "INTERVENTION_STARTED")) {
+            log.debug("Notification INTERVENTION_STARTED déjà envoyée pour intervention [{}] à [{}], déduplication appliquée",
+                    intervention.getId(), canonicalUserId);
+            return;
+        }
+
+        String machineDisplay = StringUtils.hasText(intervention.getMachineCode()) ? intervention.getMachineCode() : intervention.getMachineId();
+        String notifTitle = "🚀 Démarrage intervention : " + (intervention.getTitle() != null ? intervention.getTitle() : "Intervention");
+        String notifBody = "L'intervention sur la machine " + (machineDisplay != null ? machineDisplay : "")
+                + " a été démarrée par " + techDisplayName + ".";
+        String notifType = "INTERVENTION_STARTED";
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("interventionId", intervention.getId() != null ? intervention.getId() : "");
+        data.put("machineId", intervention.getMachineId() != null ? intervention.getMachineId() : "");
+        data.put("machineCode", intervention.getMachineCode() != null ? intervention.getMachineCode() : "");
+        data.put("type", notifType);
+        data.put("eventId", intervention.getId() + "_STARTED");
+        data.put("technicianName", techDisplayName);
+        data.put("startedAt", intervention.getStartedAt() != null ? intervention.getStartedAt().toString() : Instant.now().toString());
+        data.put("screen", "InterventionDetail");
+
+        AppNotification notif = new AppNotification(
+                canonicalUserId,
+                null,
+                intervention.getId(),
+                intervention.getMachineId(),
+                notifTitle,
+                notifBody,
+                notifType,
+                data
+        );
+        AppNotification savedNotif = notificationRepository.save(notif);
+
+        realtimeMessageService.broadcastNotificationToUser(canonicalUserId, savedNotif);
+        if (manager != null && StringUtils.hasText(manager.getEmail())) {
+            realtimeMessageService.broadcastNotificationToUser(manager.getEmail(), savedNotif);
+        }
+        realtimeMessageService.broadcastUnreadCountToUser(canonicalUserId, getUnreadCount(canonicalUserId, manager != null ? manager.getEmail() : null));
+
+        Map<String, String> pushData = new HashMap<>();
+        data.forEach((k, v) -> pushData.put(k, String.valueOf(v)));
+        pushNotificationService.sendPushToUser(canonicalUserId, notifTitle, notifBody, pushData);
+
+        log.info("Notification de démarrage d'intervention envoyée au responsable [{}] pour [{}] par [{}]",
+                canonicalUserId, intervention.getId(), techDisplayName);
     }
 
     /**

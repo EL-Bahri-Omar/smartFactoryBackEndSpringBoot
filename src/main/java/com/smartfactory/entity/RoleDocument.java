@@ -99,6 +99,17 @@ public class RoleDocument {
         this.createdAt = createdAt;
     }
 
+    @org.springframework.data.annotation.Transient
+    private long userCount;
+
+    public long getUserCount() {
+        return userCount;
+    }
+
+    public void setUserCount(long userCount) {
+        this.userCount = userCount;
+    }
+
     public Instant getUpdatedAt() {
         return updatedAt;
     }

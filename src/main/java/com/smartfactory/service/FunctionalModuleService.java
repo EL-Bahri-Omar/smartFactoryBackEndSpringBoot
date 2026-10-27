@@ -1,9 +1,5 @@
 package com.smartfactory.service;
 
-import com.smartfactory.dto.ModuleCreateRequest;
-import com.smartfactory.dto.ModulePrivilegeCreateRequest;
-import com.smartfactory.dto.ModuleResponseDto;
-import com.smartfactory.dto.ModuleUpdateRequest;
 import com.smartfactory.entity.FunctionalModule;
 import com.smartfactory.entity.ModulePrivilege;
 import com.smartfactory.entity.RoleDocument;
@@ -42,18 +38,15 @@ public class FunctionalModuleService {
         initializeDefaultModules();
     }
 
-    public List<ModuleResponseDto> getAllModules() {
-        return moduleRepository.findAll().stream()
-                .map(this::toResponseDto)
-                .collect(Collectors.toList());
+    public List<FunctionalModule> getAllModules() {
+        return moduleRepository.findAll();
     }
 
-    public ModuleResponseDto getModule(String idOrCode) {
-        FunctionalModule module = findModuleByIdOrCode(idOrCode);
-        return toResponseDto(module);
+    public FunctionalModule getModule(String idOrCode) {
+        return findModuleByIdOrCode(idOrCode);
     }
 
-    public ModuleResponseDto createModule(ModuleCreateRequest request) {
+    public FunctionalModule createModule(FunctionalModule request) {
         if (request == null || !StringUtils.hasText(request.getCode()) || !StringUtils.hasText(request.getName())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR: Le code et le nom du module sont obligatoires");
         }
@@ -78,10 +71,10 @@ public class FunctionalModuleService {
 
         FunctionalModule saved = moduleRepository.save(module);
         log.info("Nouveau module fonctionnel créé : [{}] ({})", saved.getCode(), saved.getName());
-        return toResponseDto(saved);
+        return saved;
     }
 
-    public ModuleResponseDto updateModule(String idOrCode, ModuleUpdateRequest request) {
+    public FunctionalModule updateModule(String idOrCode, FunctionalModule request) {
         FunctionalModule module = findModuleByIdOrCode(idOrCode);
 
         if (request.getName() != null && StringUtils.hasText(request.getName())) {
@@ -90,14 +83,12 @@ public class FunctionalModuleService {
         if (request.getDescription() != null) {
             module.setDescription(request.getDescription().trim());
         }
-        if (request.getActive() != null) {
-            module.setActive(request.getActive());
-        }
+        module.setActive(request.isActive());
 
         module.setUpdatedAt(Instant.now());
         FunctionalModule saved = moduleRepository.save(module);
         log.info("Module fonctionnel mis à jour : [{}]", saved.getCode());
-        return toResponseDto(saved);
+        return saved;
     }
 
     public void deleteModule(String idOrCode) {
@@ -133,7 +124,7 @@ public class FunctionalModuleService {
         log.info("Module fonctionnel supprimé : [{}]", module.getCode());
     }
 
-    public ModuleResponseDto addPrivilegeToModule(String idOrCode, ModulePrivilegeCreateRequest request) {
+    public FunctionalModule addPrivilegeToModule(String idOrCode, ModulePrivilege request) {
         FunctionalModule module = findModuleByIdOrCode(idOrCode);
 
         if (request == null || !StringUtils.hasText(request.getAction())) {
@@ -152,7 +143,7 @@ public class FunctionalModuleService {
 
         FunctionalModule saved = moduleRepository.save(module);
         log.info("Privilège [{}] ajouté au module [{}]", fullPrivCode, module.getCode());
-        return toResponseDto(saved);
+        return saved;
     }
 
     public List<ModulePrivilege> getModulePrivileges(String idOrCode) {
@@ -160,7 +151,7 @@ public class FunctionalModuleService {
         return module.getPrivileges();
     }
 
-    public ModuleResponseDto removePrivilegeFromModule(String idOrCode, String privilegeCode) {
+    public FunctionalModule removePrivilegeFromModule(String idOrCode, String privilegeCode) {
         FunctionalModule module = findModuleByIdOrCode(idOrCode);
         if (!StringUtils.hasText(privilegeCode)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR: Le code du privilège est obligatoire");
@@ -187,7 +178,7 @@ public class FunctionalModuleService {
         module.setUpdatedAt(Instant.now());
         FunctionalModule saved = moduleRepository.save(module);
         log.info("Privilège [{}] retiré du module [{}]", targetCode, module.getCode());
-        return toResponseDto(saved);
+        return saved;
     }
 
     public Set<String> getAllAvailablePrivilegeCodes() {
@@ -312,19 +303,5 @@ public class FunctionalModuleService {
             moduleRepository.save(module);
             log.info("Module système initialisé : [{}] avec {} privilèges", code, defaultPrivs.size());
         }
-    }
-
-    private ModuleResponseDto toResponseDto(FunctionalModule m) {
-        return new ModuleResponseDto(
-                m.getId(),
-                m.getCode(),
-                m.getName(),
-                m.getDescription(),
-                m.isActive(),
-                m.isSystemModule(),
-                m.getPrivileges(),
-                m.getCreatedAt(),
-                m.getUpdatedAt()
-        );
     }
 }

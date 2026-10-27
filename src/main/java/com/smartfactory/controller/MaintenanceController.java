@@ -1,6 +1,5 @@
 package com.smartfactory.controller;
 
-import com.smartfactory.dto.*;
 import com.smartfactory.entity.*;
 import com.smartfactory.security.UserPrincipal;
 import com.smartfactory.service.MaintenanceInterventionService;
@@ -44,7 +43,7 @@ public class MaintenanceController {
     @PostMapping
     @PreAuthorize("hasAnyRole('RESPONSABLE_INDUSTRIEL', 'ADMIN') or (hasAuthority('MAINTENANCE_WRITE') and !hasRole('TECHNICIAN') and !hasRole('OPERATOR'))")
     public ResponseEntity<MaintenanceIntervention> createIntervention(
-            @Valid @RequestBody InterventionCreateRequest request,
+            @RequestBody MaintenanceIntervention request,
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
         String username = currentUser != null ? currentUser.getUsername() : "ANONYMOUS";
@@ -60,7 +59,7 @@ public class MaintenanceController {
     @PreAuthorize("hasAnyRole('RESPONSABLE_INDUSTRIEL', 'ADMIN') or (hasAuthority('MAINTENANCE_WRITE') and !hasRole('TECHNICIAN') and !hasRole('OPERATOR'))")
     public ResponseEntity<MaintenanceIntervention> updateIntervention(
             @PathVariable String id,
-            @Valid @RequestBody InterventionUpdateRequest request,
+            @RequestBody MaintenanceIntervention request,
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
         String updatedBy = currentUser != null ? currentUser.getUsername() : "ANONYMOUS";
@@ -118,15 +117,17 @@ public class MaintenanceController {
     @PreAuthorize("hasAnyRole('RESPONSABLE_INDUSTRIEL', 'ADMIN') or (hasAuthority('MAINTENANCE_WRITE') and !hasRole('TECHNICIAN') and !hasRole('OPERATOR'))")
     public ResponseEntity<MaintenanceIntervention> assignTechnician(
             @PathVariable String id,
-            @Valid @RequestBody InterventionAssignRequest request,
+            @RequestBody(required = false) MaintenanceIntervention request,
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
         String assignedBy = currentUser != null ? currentUser.getUsername() : "ANONYMOUS";
         MaintenanceIntervention updated;
-        if (request.getTechnicianIds() != null && !request.getTechnicianIds().isEmpty()) {
+        if (request != null && request.getTechnicianIds() != null && !request.getTechnicianIds().isEmpty()) {
             updated = interventionService.assignTechnicians(id, request.getTechnicianIds(), assignedBy);
-        } else {
+        } else if (request != null && org.springframework.util.StringUtils.hasText(request.getTechnicianId())) {
             updated = interventionService.assignTechnician(id, request.getTechnicianId(), assignedBy);
+        } else {
+            updated = interventionService.assignTechnicians(id, java.util.Collections.emptyList(), assignedBy);
         }
         return ResponseEntity.ok(updated);
     }
@@ -145,11 +146,29 @@ public class MaintenanceController {
     /**
      * Enregistre un diagnostic technique (US45, Section 6.2).
      */
+    /**
+     * Démarre formellement une intervention de maintenance (Statut IN_PROGRESS).
+     * Notifie le responsable industriel du lancement des travaux (Section 3).
+     */
+    @RequestMapping(value = "/{id}/start", method = {RequestMethod.PUT, RequestMethod.POST})
+    @PreAuthorize("hasAnyRole('ADMIN', 'TECHNICIAN', 'RESPONSABLE_INDUSTRIEL') or hasAuthority('MAINTENANCE_WRITE')")
+    public ResponseEntity<MaintenanceIntervention> startIntervention(
+            @PathVariable String id,
+            @AuthenticationPrincipal UserPrincipal currentUser) {
+
+        String startedBy = currentUser != null ? currentUser.getUsername() : "ANONYMOUS";
+        MaintenanceIntervention started = interventionService.startIntervention(id, startedBy, currentUser);
+        return ResponseEntity.ok(started);
+    }
+
+    /**
+     * Enregistre un diagnostic technique (US45, Section 6.2).
+     */
     @PostMapping("/{id}/diagnoses")
     @PreAuthorize("hasAnyRole('ADMIN', 'TECHNICIAN', 'RESPONSABLE_INDUSTRIEL')")
     public ResponseEntity<MaintenanceIntervention> addDiagnosis(
             @PathVariable String id,
-            @Valid @RequestBody DiagnosisCreateRequest request,
+            @RequestBody MaintenanceDiagnosis request,
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
         String techId = currentUser != null && currentUser.getId() != null ? currentUser.getId() : (currentUser != null ? currentUser.getUsername() : "ANONYMOUS");
@@ -165,7 +184,7 @@ public class MaintenanceController {
     @PreAuthorize("hasAnyRole('ADMIN', 'TECHNICIAN', 'RESPONSABLE_INDUSTRIEL')")
     public ResponseEntity<MaintenanceIntervention> addAction(
             @PathVariable String id,
-            @Valid @RequestBody ActionCreateRequest request,
+            @RequestBody MaintenanceAction request,
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
         String techId = currentUser != null && currentUser.getId() != null ? currentUser.getId() : (currentUser != null ? currentUser.getUsername() : "ANONYMOUS");
@@ -181,7 +200,7 @@ public class MaintenanceController {
     @PreAuthorize("hasAnyRole('ADMIN', 'TECHNICIAN', 'RESPONSABLE_INDUSTRIEL')")
     public ResponseEntity<MaintenanceIntervention> addObservation(
             @PathVariable String id,
-            @Valid @RequestBody ObservationCreateRequest request,
+            @RequestBody MaintenanceObservation request,
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
         String authorId = currentUser != null && currentUser.getId() != null ? currentUser.getId() : (currentUser != null ? currentUser.getUsername() : "ANONYMOUS");
@@ -197,7 +216,7 @@ public class MaintenanceController {
     @PreAuthorize("hasAnyRole('ADMIN', 'TECHNICIAN', 'RESPONSABLE_INDUSTRIEL')")
     public ResponseEntity<MaintenanceIntervention> closeIntervention(
             @PathVariable String id,
-            @Valid @RequestBody InterventionCloseRequest request,
+            @RequestBody(required = false) MaintenanceIntervention request,
             @AuthenticationPrincipal UserPrincipal currentUser) {
 
         String closedBy = currentUser != null ? currentUser.getUsername() : "ANONYMOUS";

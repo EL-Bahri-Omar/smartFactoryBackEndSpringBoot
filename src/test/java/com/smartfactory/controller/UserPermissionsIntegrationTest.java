@@ -1,7 +1,6 @@
 package com.smartfactory.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.smartfactory.dto.UpdatePermissionsRequest;
 import com.smartfactory.entity.User;
 import com.smartfactory.repository.UserRepository;
 import com.smartfactory.security.JwtService;
@@ -147,8 +146,7 @@ class UserPermissionsIntegrationTest {
     @DisplayName("Attribution et modification dynamique des permissions via API PUT /api/users/{id}/permissions")
     void testUpdateUserPermissionsViaApi() throws Exception {
         // Admin accorde à Opérateur A la checklist souhaitée
-        UpdatePermissionsRequest request = new UpdatePermissionsRequest();
-        request.setPermissions(Set.of(
+        java.util.Map<String, Object> request = java.util.Map.of("permissions", Set.of(
                 Permission.MACHINE_READ,
                 Permission.READINGS_READ,
                 Permission.ALERT_READ,
@@ -169,8 +167,7 @@ class UserPermissionsIntegrationTest {
     @Test
     @DisplayName("Un utilisateur standard ne peut pas modifier ses propres privilèges (403 Forbidden)")
     void testOrdinaryUserCannotEscalatePermissions() throws Exception {
-        UpdatePermissionsRequest request = new UpdatePermissionsRequest();
-        request.setPermissions(Set.of(Permission.USER_WRITE, Permission.USER_PERMISSIONS_MANAGE));
+        java.util.Map<String, Object> request = java.util.Map.of("permissions", Set.of(Permission.USER_WRITE, Permission.USER_PERMISSIONS_MANAGE));
 
         mockMvc.perform(put("/api/users/" + operatorA.getId() + "/permissions")
                         .header("Authorization", "Bearer " + operatorAToken)

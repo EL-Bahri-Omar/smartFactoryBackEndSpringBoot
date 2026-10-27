@@ -125,13 +125,13 @@ class UserControllerTest {
     @Test
     @DisplayName("US03: Creation fails with 409 when email already exists")
     void testCreateUserDuplicateEmail() throws Exception {
-        User request = new User(
-                "Duplicate",
-                "Admin",
-                "admin@smartfactory.com",
-                "password123",
-                Role.ADMIN,
-                "ACTIVE"
+        Map<String, Object> request = Map.of(
+                "firstName", "Duplicate",
+                "lastName", "Admin",
+                "email", "admin@smartfactory.com",
+                "password", "password123",
+                "role", Role.ADMIN,
+                "status", "ACTIVE"
         );
 
         mockMvc.perform(post("/api/users")
