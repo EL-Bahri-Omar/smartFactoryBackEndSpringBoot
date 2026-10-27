@@ -119,7 +119,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/maintenance/*/diagnoses", "/api/maintenance/*/actions", "/api/maintenance/*/observations").hasAnyAuthority("ROLE_ADMIN", "ADMIN", "MAINTENANCE_WRITE", "ROLE_TECHNICIAN", "TECHNICIAN", "ROLE_RESPONSABLE_INDUSTRIEL", "RESPONSABLE_INDUSTRIEL")
                         .requestMatchers(HttpMethod.PUT, "/api/maintenance/*/close").hasAnyAuthority("ROLE_ADMIN", "ADMIN", "MAINTENANCE_WRITE", "ROLE_TECHNICIAN", "TECHNICIAN", "ROLE_RESPONSABLE_INDUSTRIEL", "RESPONSABLE_INDUSTRIEL")
                         .requestMatchers(HttpMethod.POST, "/api/maintenance", "/api/maintenance/", "/api/maintenance/recommendations/**").hasAnyAuthority("ROLE_ADMIN", "ADMIN", "ROLE_RESPONSABLE_INDUSTRIEL", "RESPONSABLE_INDUSTRIEL")
-                        .requestMatchers(HttpMethod.PUT, "/api/maintenance/*", "/api/maintenance/*/assign").hasAnyAuthority("ROLE_ADMIN", "ADMIN", "ROLE_RESPONSABLE_INDUSTRIEL", "RESPONSABLE_INDUSTRIEL")
+                        .requestMatchers(HttpMethod.PUT, "/api/maintenance/*", "/api/maintenance/*/assign").hasAnyAuthority("ROLE_ADMIN", "ADMIN", "ROLE_RESPONSABLE_INDUSTRIEL", "RESPONSABLE_INDUSTRIEL", "ROLE_TECHNICIAN","TECHNICIAN")
                         .requestMatchers(HttpMethod.GET, "/api/maintenance/**").hasAnyAuthority("ROLE_ADMIN", "ADMIN", "MAINTENANCE_READ", "ROLE_TECHNICIAN", "TECHNICIAN", "ROLE_RESPONSABLE_INDUSTRIEL", "RESPONSABLE_INDUSTRIEL")
 
                         // Notifications & device tokens
